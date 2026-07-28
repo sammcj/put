@@ -1,0 +1,50 @@
+# Per-PR verification: lint and hermetic tests.
+# Runs make lint (swiftlint + swiftformat --lint) and make test on every
+# pull request and on push to main. AX-dependent tests (make test-ax) are
+# excluded because GitHub-hosted runners have no Accessibility grant.
+#
+# Runner must be macos-26: the package deployment target is macOS 26.0, which
+# needs the macOS 26 SDK (Xcode 26). The macos-15 image defaults to Xcode 16,
+# whose macOS 15 SDK cannot build a macOS 26 target.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default: deny all. The job grants only what it needs.
+permissions: {}
+
+jobs:
+  lint-and-test:
+    name: Lint and test
+    runs-on: macos-26
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # macos-26's default Xcode (26.x) carries the macOS 26 SDK; select the
+      # default symlink explicitly so a future image default change surfaces here.
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install swiftlint and swiftformat
+        run: brew install swiftlint swiftformat
+
+      - name: Lint
+        run: make lint
+
+      - name: Run hermetic tests
+        run: make test

@@ -1,0 +1,28 @@
+# swiftformat config for Put
+--swiftversion 6.0
+--indent 4
+--maxwidth 120
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--closingparen same-line
+--stripunusedargs closure-only
+--self remove
+--semicolons never
+--trailingclosures
+--commas inline
+--elseposition same-line
+--operatorfunc spaced
+--nospaceoperators ...,..<
+--ranges no-space
+--emptybraces no-space
+--patternlet hoist
+--redundanttype inferred
+--shortoptionals always
+
+# Both rules became defaults in SwiftFormat 0.62 and would rewrite every
+# single-line `if x { return }` guard in the codebase onto three lines. That
+# one-line form is the established style here, so the rules stay off - which
+# also keeps lint deterministic across formatter upgrades instead of depending
+# on whichever version the machine or CI runner happens to install.
+--disable wrapIfStatementBodies,wrapIfExpressionBodies

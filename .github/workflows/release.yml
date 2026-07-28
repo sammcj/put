@@ -1,0 +1,272 @@
+# Build, sign, notarise and publish a release of Put.
+# Manual dispatch only. Produces:
+#   - Signed + notarised .app (dist/Put-<version>.zip)
+#   - Signed + notarised + stapled .dmg (dist/Put-<version>-<arch>.dmg)
+#   - Draft GitHub Release with both artefacts attached
+#
+# Required repository secrets:
+#   APPLE_CERTIFICATE            Base64-encoded .p12 Developer ID Application certificate
+#   APPLE_CERTIFICATE_PASSWORD   Password for the .p12
+#   APPLE_SIGNING_IDENTITY       Full identity string (e.g. "Developer ID Application: Name (TEAMID)")
+#   APPLE_API_ISSUER             App Store Connect API Issuer ID
+#   APPLE_API_KEY                App Store Connect API Key ID
+#   APPLE_API_KEY_CONTENT        Contents of the .p8 API key file
+#
+# Run `make github-secrets` locally to dump the Keychain-resident values.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp into VERSION (semver; leave empty to use current VERSION file)"
+        required: false
+        type: string
+      dry_run:
+        description: "Dry run (build + sign + notarise, skip GitHub Release)"
+        required: false
+        type: boolean
+        default: false
+      skip_tests:
+        description: "Skip tests (use when re-running after a build-only fix)"
+        required: false
+        type: boolean
+        default: false
+  # Automatic triggers disabled for now -- local builds are preferred to
+  # conserve Actions minutes. Uncomment to re-enable. The skip-ci guard
+  # below will honour `[skip-ci]` in the PR title or current commit message.
+  # push:
+  #   branches: [main]
+  #   tags: ['v*']
+  # pull_request:
+  #   branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# Default: deny all. Each job grants the minimum it needs.
+permissions: {}
+
+jobs:
+  # Cheap guard that checks whether this run should be skipped because of a
+  # [skip-ci] marker. Runs on ubuntu (10x cheaper than macos). workflow_dispatch
+  # is always honoured -- the marker only affects push / pull_request events.
+  guard:
+    name: Skip-CI guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should_skip: ${{ steps.check.outputs.should_skip }}
+    steps:
+      - name: Checkout (shallow)
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Evaluate skip-ci markers
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          skip=false
+          if [[ "$EVENT_NAME" == "pull_request" && "$PR_TITLE" == *'[skip-ci]'* ]]; then
+            echo "Skip: PR title contains [skip-ci]"
+            skip=true
+          fi
+          if [[ "$EVENT_NAME" == "push" || "$EVENT_NAME" == "pull_request" ]]; then
+            HEAD_MSG=$(git log -1 --pretty=%B 2>/dev/null || echo '')
+            if [[ "$HEAD_MSG" == *'[skip-ci]'* ]]; then
+              echo "Skip: current commit message contains [skip-ci]"
+              skip=true
+            fi
+          fi
+          echo "should_skip=$skip" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test
+    needs: guard
+    if: needs.guard.outputs.should_skip != 'true' && !inputs.skip_tests
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Run hermetic tests
+        run: make test
+
+  release:
+    name: Build and Release
+    needs: [guard, test]
+    if: |
+      always() &&
+      needs.guard.outputs.should_skip != 'true' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: macos-15
+    permissions:
+      contents: write # Required for creating the draft release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install librsvg (for icon generation)
+        run: brew install librsvg
+
+      - name: Stamp version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            if [[ ! "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+              echo "ERROR: version '$INPUT_VERSION' is not a valid semver string"
+              exit 1
+            fi
+            echo "$INPUT_VERSION" > VERSION
+          fi
+          V=$(tr -d '[:space:]' < VERSION)
+          echo "version=${V}" >> "$GITHUB_OUTPUT"
+          echo "Building Put ${V}"
+          # Freeze CHANGELOG.md [Unreleased] -> [V]. No-op if section is empty.
+          python3 scripts/version.py stamp --version "${V}" --changelog-only
+
+      - name: Import Apple signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          EXISTING_KEYCHAINS=$(security list-keychains -d user | tr -d '"')
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
+
+          rm -f "$CERT_PATH"
+
+      - name: Write App Store Connect API key
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/private_keys"
+          KEY_FILE="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          umask 077
+          printf '%s' "$APPLE_API_KEY_CONTENT" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+
+      - name: Build, sign, notarise, and package
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+        run: make release
+
+      - name: Collect artefacts
+        id: artefacts
+        env:
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          ZIP="dist/Put-${V}.zip"
+          DMG=$(find dist -maxdepth 1 -name "Put-${V}-*.dmg" -print -quit)
+
+          if [[ ! -f "$ZIP" ]]; then
+            echo "ERROR: expected zip not found at $ZIP"
+            ls -la dist/ || true
+            exit 1
+          fi
+          if [[ -z "$DMG" || ! -f "$DMG" ]]; then
+            echo "ERROR: expected dmg not found in dist/"
+            ls -la dist/ || true
+            exit 1
+          fi
+
+          echo "zip=${ZIP}" >> "$GITHUB_OUTPUT"
+          echo "dmg=${DMG}" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft GitHub Release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          V: ${{ steps.version.outputs.version }}
+          ZIP: ${{ steps.artefacts.outputs.zip }}
+          DMG: ${{ steps.artefacts.outputs.dmg }}
+        run: |
+          TAG="v${V}"
+          gh release create "$TAG" \
+            --draft \
+            --title "Put ${TAG}" \
+            --notes "Draft release. Review and publish manually." \
+            "$ZIP" \
+            "$DMG"
+
+      - name: Summary
+        env:
+          V: ${{ steps.version.outputs.version }}
+          ZIP: ${{ steps.artefacts.outputs.zip }}
+          DMG: ${{ steps.artefacts.outputs.dmg }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "## Release v${V}"
+            echo ""
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo "**Dry run** -- no GitHub Release created."
+            else
+              echo "Draft release created. Review and publish at:"
+              echo "https://github.com/${REPO}/releases"
+            fi
+            echo ""
+            echo "### Artefacts"
+            if [[ -f "$ZIP" ]]; then
+              SIZE=$(du -h "$ZIP" | cut -f1)
+              echo "- ZIP: ${ZIP} (${SIZE})"
+            fi
+            if [[ -f "$DMG" ]]; then
+              SIZE=$(du -h "$DMG" | cut -f1)
+              echo "- DMG: ${DMG} (${SIZE})"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up secrets on disk
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/private_keys"

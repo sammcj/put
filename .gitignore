@@ -1,0 +1,14 @@
+.build/
+.swiftpm/
+Put.app/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+.DS_Store
+Package.resolved.tmp
+*.swp
+*.swo
+/dist/
+
+# graphify knowledge graph (generated, machine-specific, rebuildable)
+graphify-out/

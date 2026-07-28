@@ -1,0 +1,1 @@
+- [Put Spaces constraint](project_put_spaces_constraint.md) — SIP-safe to READ Mission Control Spaces topology; MOVE/CREATE/DESTROY Spaces is off-limits without partial SIP disable
