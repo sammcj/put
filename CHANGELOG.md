@@ -9,6 +9,29 @@ Changelog; versions use SemVer.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-30
+
+### Fixed
+
+- The built app reported the previous version. `Info.plist` bakes `VERSION` in
+  through the bundle recipe, but `VERSION` was not one of that rule's
+  prerequisites, so bumping the version alone left every prerequisite older than
+  the target and make skipped the recipe. The bundle kept the old
+  `CFBundleShortVersionString` while the DMG filename carried the new number, so
+  a 0.2.3 DMG shipped an app that said 0.2.2 in About.
+
+### Changed
+
+- `make release` now commits the version bump as `chore: release X.Y.Z` and
+  creates an annotated `vX.Y.Z` tag, so the tag always names the version the
+  artefacts were built with. It runs after `verify` passes, so a failed release
+  burns neither a tag nor a version number, and it stages only `VERSION` and
+  `CHANGELOG.md` rather than sweeping the tree. Nothing is pushed; the push
+  command is printed. `NO_TAG=1` skips it, and an existing tag is left alone
+  with a warning.
+
+## [0.2.3] - 2026-07-30
+
 ### Fixed
 
 - The release workflow ran its test and build jobs on `macos-15`, whose Xcode 16
