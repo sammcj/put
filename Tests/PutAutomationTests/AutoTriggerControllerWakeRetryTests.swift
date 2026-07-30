@@ -136,7 +136,13 @@ struct AutoTriggerControllerWakeRetryTests {
             name: NSWorkspace.screensDidWakeNotification,
             object: NSWorkspace.shared)
         try await Task.sleep(for: .milliseconds(300))
-        #expect(probe.snapshotCalls == 1)
+        // At least one, not exactly one. The post goes to the real shared
+        // workspace notification centre, so a genuine system wake or unlock on
+        // the host during this window delivers a second event and a second
+        // restore - which is correct behaviour, but made this fail in CI. The
+        // regression guarded here is zero restores (no observer registered);
+        // coalescing is covered by `wakeCoalescesIntoSingleRestore`.
+        #expect(probe.snapshotCalls >= 1)
     }
 
     @Test

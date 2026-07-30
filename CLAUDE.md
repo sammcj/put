@@ -13,7 +13,7 @@ Ten targets in the local Swift Package (eight libraries, the `Put` executable, a
 - `PutPlacement`: pure functions - `Coordinates` (three coordinate spaces, see below), `RuleMatcher`, `PlacementEngine`.
 - `PutHotkeys`: `KeyboardShortcuts` wrapper, default bindings, `LayoutHotkeys` for dynamic per-layout shortcuts.
 - `PutAutomation`: `ActionCoordinator` (orchestrates save/restore), `AutoTriggerController` (display/launch/wake), `AppState` (`@Observable`), `ConfigPersister`, `DiagnosticsExport`, `LoginItemController`, `Debouncer`.
-- `PutUI`: SwiftUI `SettingsScene` with five tabs, `MenuBarController`, `OnboardingWindowController`, `AboutWindow`.
+- `PutUI`: SwiftUI `SettingsView` with six tabs (General, Hotkeys, Rules, Layouts, Displays, About), `MenuBarController`, `OnboardingWindowController`, `AboutWindow`.
 - `Put`: `@main` `PutApp` + `AppDelegate` that wires everything.
 
 ## Build commands
@@ -26,7 +26,12 @@ make run        # launch the bundled .app
 make lint       # swiftlint + swiftformat
 make test       # hermetic unit tests
 make test-ax    # PUT_RUN_AX_TESTS=1 for AX-dependent tests
+make release    # bump patch, notarise, build DMG, then commit and tag
 ```
+
+`make release` has side effects beyond building: it bumps the patch version, freezes the CHANGELOG `[Unreleased]` section, and on success commits `VERSION` + `CHANGELOG.md` as `chore: release X.Y.Z` and creates an annotated `vX.Y.Z` tag. It pushes nothing. `NO_BUMP=1` keeps the current version, `NO_TAG=1` skips the commit and tag.
+
+Anything baked into the bundle from a file must be a prerequisite of the `$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)` rule. `VERSION` is, because the recipe seds it into `Info.plist`; omitting it meant a version bump alone left every prerequisite older than the target, so make skipped the recipe and shipped a stale `CFBundleShortVersionString` under a correctly-named DMG.
 
 Always drive the build/lint/test loop through `make`, not direct `swift` / `swiftlint` / `swiftformat` calls - the Makefile wires in signing identity resolution, icon generation, and environment defaults that ad-hoc invocations miss.
 
@@ -77,7 +82,9 @@ Invalid regex patterns fail closed (no match). Keep it that way - fail-open woul
 
 ## Testing
 
-Default `swift test` is hermetic and fast (~0.3s). AX-dependent integration tests live in `Tests/IntegrationTests` and `Tests/PutWindowsTests`; disabled unless `PUT_RUN_AX_TESTS=1`. Use `.disabled(if:)` trait, not `#require`, when gating new AX tests - `#require` converts skip-by-environment into a test failure.
+Default `swift test` is hermetic and fast (about a second). AX-dependent integration tests live in `Tests/IntegrationTests` and `Tests/PutWindowsTests`; disabled unless `PUT_RUN_AX_TESTS=1`. Use `.disabled(if:)` trait, not `#require`, when gating new AX tests - `#require` converts skip-by-environment into a test failure.
+
+A test that posts to `NSWorkspace.shared.notificationCenter` or `DistributedNotificationCenter` shares that bus with the OS, so a real system wake, unlock or display change can deliver an extra event mid-test. Assert the boundary the test exists to prove (`>= 1` for "the observer is wired") rather than an exact count, and cover coalescing in a test that drives the debouncer directly. Two CI flakes have come from exact-count assertions over timing windows: this one, and `appLaunchRetryCancelsOnRelaunch`, where the split between "attempt belongs to the cancelled schedule" and "cancellation took effect" is not observable.
 
 Pure placement matrix in `Tests/PutPlacementTests/PlacementEngineTests.swift` covers same-resolution replay, downscale, `Looks like` change, missing display fallback, arrangement origin shift, vendor-match-as-equivalent. When touching `PlacementEngine`, add to that matrix.
 
@@ -107,7 +114,7 @@ When debugging window placement, the three surfaces in order of usefulness:
 
 **AX enumeration blocks on XPC.** `WindowProbe.snapshot()` and friends synchronously round-trip to every foreground app's Accessibility server. The `ActionCoordinator` dispatches all AX reads via `Task.detached(priority: .userInitiated)` and only re-enters `@MainActor` for state mutation. Keep this pattern when adding new AX-driven operations.
 
-**No App Store target.** Cross-process `AXUIElement` is incompatible with sandboxing, and GPL-3.0 is incompatible with the App Store's distribution terms, so this is settled twice over. Distribution path is Developer ID + notarisation (`make notarise`, gated on `DEVELOPER_ID_APPLICATION`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_ID_PASSWORD`). Do not add sandbox entitlements "just in case".
+**No App Store target.** Cross-process `AXUIElement` is incompatible with sandboxing, and GPL-3.0 is incompatible with the App Store's distribution terms, so this is settled twice over. Distribution path is Developer ID + notarisation. Credentials resolve Keychain-first from service `put-release` (accounts `signing-identity`, `api-issuer`, `api-key`, `api-key-path`, populated by `make setup-release-keychain`), falling back to the matching `APPLE_*` env vars so CI can supply them as secrets. Do not add sandbox entitlements "just in case".
 
 **`WindowMutator.applyOnce` must end with `setSize` in both branches.** Firefox (and likely other Gecko apps) silently revert the size when a position write immediately follows it - AX returns `.success`, but the size never lands. The growing branch keeps a trailing position pin to catch size-induced origin drift, then re-commits size last; the shrinking branch already ends with size. Symptom of a regression: window jumps to target then snaps back, with `Window drifted attempts=2` in the log because the early-bail sees identical actuals across attempts.
 
@@ -133,4 +140,4 @@ Issues (features, bugs, chores) are to be tracked in Github Issues.
 
 ### Changelog
 
-Update `CHANGELOG.md` under the `## [Unreleased]` section with a concise bullet-point summary of changes made, grouped under headings (Added/Changed/Fixed/Removed). Combine or update items refined within the same session. Do NOT add version numbers; the build process handles that via `make version V=X.Y.Z` (or `make stamp-version` to freeze the current VERSION). Truncate the file when it exceeds 2000 lines.
+Update `CHANGELOG.md` under the `## [Unreleased]` section with a concise bullet-point summary of changes made, grouped under headings (Added/Changed/Fixed/Removed). Combine or update items refined within the same session. Do NOT add version numbers; the build process handles that via `make version V=X.Y.Z` (or `make stamp-version` to freeze the current VERSION), and `make release` bumps the patch and freezes `[Unreleased]` itself. Truncate the file when it exceeds 2000 lines.

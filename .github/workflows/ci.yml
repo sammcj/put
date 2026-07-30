@@ -1,7 +1,9 @@
 # Per-PR verification: lint and hermetic tests.
-# Runs make lint (swiftlint + swiftformat --lint) and make test on every
-# pull request and on push to main. AX-dependent tests (make test-ax) are
-# excluded because GitHub-hosted runners have no Accessibility grant.
+# Runs make lint (swiftlint + swiftformat --lint) and make test on pull
+# requests only. Pushes to main are deliberately not built: a direct push has
+# usually already been verified locally, and macOS runners bill at 10x.
+# AX-dependent tests (make test-ax) are excluded because GitHub-hosted runners
+# have no Accessibility grant.
 #
 # Runner is macos-latest, which resolves to macos-26 or newer. The package's
 # macOS 26.0 deployment target needs at least the macOS 26 SDK (Xcode 26); an
@@ -12,8 +14,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 

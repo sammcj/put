@@ -9,6 +9,28 @@ Changelog; versions use SemVer.
 
 ## [Unreleased]
 
+### Fixed
+
+- `screensDidWakeTriggersRestore` asserted exactly one restore after posting to
+  `NSWorkspace.shared.notificationCenter`. That bus is shared with the OS, so a
+  real wake or unlock on the host delivered a second event and failed the test
+  in CI. It now asserts at least one, which is the regression it guards
+  (observer registered); coalescing is covered by `wakeCoalescesIntoSingleRestore`.
+
+### Changed
+
+- `make release` now asks before pushing, and pushes the branch and tag when you
+  say yes. It declines silently when stdin is not a tty, and the default answer
+  is no.
+- CI runs on pull requests only. Pushes to `main` no longer trigger a build,
+  since a direct push has usually been verified locally and macOS runners bill
+  at ten times the rate.
+- Docs corrected against the code: CLAUDE.md described `SettingsScene` with five
+  tabs (it is `SettingsView` with six), quoted a stale test duration, and listed
+  notarisation credentials that predate the Keychain-first cascade. README said
+  distribution was an `.app` when it is a `.dmg`, and did not document the
+  release targets.
+
 ## [0.2.4] - 2026-07-30
 
 ### Fixed

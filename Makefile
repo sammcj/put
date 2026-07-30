@@ -500,8 +500,22 @@ _release-tag:
 	git tag -a "$$TAG" -m "Put $$V" && \
 	echo "Tagged $$TAG at $$(git rev-parse --short HEAD)"; \
 	echo ""; \
-	echo "Not pushed. To publish:"; \
-	echo "  git push origin $$(git rev-parse --abbrev-ref HEAD) && git push origin $$TAG"
+	BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ -t 0 ]; then \
+		printf "Push %s and %s to origin? [y/N] " "$$BRANCH" "$$TAG"; \
+		read -r reply; \
+	else \
+		reply=""; \
+		echo "stdin is not a tty, so not prompting."; \
+	fi; \
+	case "$$reply" in \
+		y|Y|yes|Yes|YES) \
+			git push origin "$$BRANCH" && git push origin "$$TAG" && \
+			echo "Pushed $$BRANCH and $$TAG.";; \
+		*) \
+			echo "Not pushed. To publish:"; \
+			echo "  git push origin $$BRANCH && git push origin $$TAG";; \
+	esac
 
 # Verify the built .app and latest .dmg are signed, notarised, and stapled.
 .PHONY: verify

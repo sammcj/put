@@ -8,7 +8,7 @@ Put remembers and restores the display, size and position of windows when trigge
 
 - macOS 26.0 or later
 - Grant accessibility permissions for the app to manage window positions and sizes
-- For development: Swift toolchain (bundled with XCode), `swiftlint` and `swiftformat`
+- For development: Swift toolchain (bundled with Xcode), `swiftlint` and `swiftformat`
 
 ## Install
 
@@ -17,7 +17,7 @@ Download the latest `.dmg` from [Releases](https://github.com/sammcj/put/release
 ## Build and run
 
 ```shell
-make            # build
+make            # build and assemble ./Put.app
 make install    # install the signed bundle to /Applications
 # or
 make run        # build and launch the bundled app
@@ -79,9 +79,19 @@ make clean      # remove .build/ and Put.app/
 - `make setup-signing` lists the codesign identities available on the machine.
 - `make bundle` signs the app as part of the build. By default it signs ad-hoc, which revokes the Accessibility grant on every rebuild because the binary hash changes. For development, sign with a stable Apple Development certificate once so the grant persists.
 
+CI runs `make lint` and `make test` on pull requests only, not on pushes to `main`.
+
 ### Distribution
 
-Put is distributed as a Developer ID signed, notarised `.app`.
+Put is distributed as a Developer ID signed, notarised `.app`, packaged as a `.dmg`.
+
+```shell
+make setup-release-keychain   # store Developer ID + notarisation creds (one-time)
+make release                  # bump patch, notarise, build DMG, commit, tag, offer to push
+make verify                   # codesign / spctl / stapler checks on the built artefacts
+```
+
+`make release` writes `dist/Put-<version>.zip` and `dist/Put-<version>-<arch>.dmg`, then commits the version bump as `chore: release X.Y.Z`, creates an annotated `vX.Y.Z` tag, and asks before pushing either. `NO_BUMP=1` reuses the current version, `NO_TAG=1` skips the commit and tag.
 
 ## Acknowledgements
 
