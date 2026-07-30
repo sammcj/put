@@ -9,6 +9,8 @@ Changelog; versions use SemVer.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-30
+
 ### Fixed
 
 - `screensDidWakeTriggersRestore` asserted exactly one restore after posting to
