@@ -67,7 +67,7 @@ help:
 	@printf '  setup-dev-signing       store Apple Development identity in Keychain (one-time)\n'
 	@printf '  setup-release-keychain  store Developer ID + notarisation creds in macOS Keychain\n'
 	@printf '  notarise                Developer ID sign, notarise, staple (reads Keychain or env)\n'
-	@printf '  release                 bump patch + notarise + build signed+notarised DMG (NO_BUMP=1 to skip bump)\n'
+	@printf '  release                 bump patch + notarise + DMG + commit and tag (NO_BUMP=1, NO_TAG=1 to skip either)\n'
 	@printf '  verify                  codesign / spctl / stapler checks on built .app and .dmg\n'
 	@printf '  github-secrets          print GitHub Actions secrets from Keychain (sensitive)\n'
 	@printf '  stamp-version           freeze CHANGELOG [Unreleased] using current VERSION\n'
@@ -82,7 +82,11 @@ build:
 .PHONY: bundle
 bundle: build icon $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME) sign
 
-$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME): $(BINARY) Resources/Info.plist.tmpl Resources/Put.entitlements THIRD-PARTY-NOTICES.md
+# VERSION is a prerequisite because the recipe bakes it into Info.plist. Without
+# it, bumping the version alone leaves every prerequisite older than the target,
+# so make skips the recipe and the bundle keeps the previous
+# CFBundleShortVersionString while the DMG filename carries the new one.
+$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME): $(BINARY) Resources/Info.plist.tmpl Resources/Put.entitlements THIRD-PARTY-NOTICES.md VERSION
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	@mkdir -p $(APP_BUNDLE)/Contents/Resources
 	cp $(BINARY) $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
@@ -460,6 +464,44 @@ _release-build: notarise
 	 APPLE_API_KEY_PATH="$(RELEASE_API_KEY_PATH)" \
 	 ./scripts/create-dmg.sh
 	@$(MAKE) --no-print-directory verify
+	@$(MAKE) --no-print-directory _release-tag
+
+# Commit the version bump and tag it, so the tag always names the version the
+# artefacts were built with. Runs last, after `verify` passes, so a failed
+# release never burns a tag or a version number. NO_TAG=1 skips it.
+#
+# Only VERSION and CHANGELOG.md are staged. Staging everything would fold
+# whatever else is dirty into a release commit, and `release` has usually just
+# written those two itself via bump-patch.
+#
+# Nothing is pushed. The push command is printed instead, because a tag is
+# awkward to retract once it is on the remote.
+.PHONY: _release-tag
+_release-tag:
+	@if [ -n "$(NO_TAG)" ]; then echo "NO_TAG=1: skipping commit and tag."; exit 0; fi
+	@if ! git rev-parse --git-dir >/dev/null 2>&1; then \
+		echo "Not a git repository; skipping commit and tag."; exit 0; \
+	fi
+	@V=$$(tr -d '[:space:]' < VERSION); TAG="v$$V"; \
+	if git rev-parse -q --verify "refs/tags/$$TAG" >/dev/null; then \
+		echo "WARNING: tag $$TAG already exists, leaving it untouched."; \
+		echo "         The artefacts in dist/ are built for $$V. Either delete the"; \
+		echo "         tag or re-run without NO_BUMP=1 to take a fresh version."; \
+		exit 0; \
+	fi; \
+	if ! git diff --quiet -- VERSION CHANGELOG.md || \
+	   ! git diff --cached --quiet -- VERSION CHANGELOG.md; then \
+		git add VERSION CHANGELOG.md && \
+		git commit -q -m "chore: release $$V" && \
+		echo "Committed: chore: release $$V"; \
+	else \
+		echo "VERSION and CHANGELOG.md are already committed; tagging HEAD."; \
+	fi; \
+	git tag -a "$$TAG" -m "Put $$V" && \
+	echo "Tagged $$TAG at $$(git rev-parse --short HEAD)"; \
+	echo ""; \
+	echo "Not pushed. To publish:"; \
+	echo "  git push origin $$(git rev-parse --abbrev-ref HEAD) && git push origin $$TAG"
 
 # Verify the built .app and latest .dmg are signed, notarised, and stapled.
 .PHONY: verify
