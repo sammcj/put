@@ -9,6 +9,14 @@ Changelog; versions use SemVer.
 
 ## [Unreleased]
 
+### Fixed
+
+- The release workflow ran its test and build jobs on `macos-15`, whose Xcode 16
+  and macOS 15 SDK cannot build this package's macOS 26 deployment target, so
+  the release path would have failed at the build step. Both workflows now use
+  `macos-latest`, which resolves to macos-26 or newer; a newer SDK builds an
+  older deployment target, so only a downgrade would break it.
+
 ### Added
 
 - `THIRD-PARTY-NOTICES.md` carrying the MIT notice for KeyboardShortcuts, the

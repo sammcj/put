@@ -3,9 +3,11 @@
 # pull request and on push to main. AX-dependent tests (make test-ax) are
 # excluded because GitHub-hosted runners have no Accessibility grant.
 #
-# Runner must be macos-26: the package deployment target is macOS 26.0, which
-# needs the macOS 26 SDK (Xcode 26). The macos-15 image defaults to Xcode 16,
-# whose macOS 15 SDK cannot build a macOS 26 target.
+# Runner is macos-latest, which resolves to macos-26 or newer. The package's
+# macOS 26.0 deployment target needs at least the macOS 26 SDK (Xcode 26); an
+# older image such as macos-15 defaults to Xcode 16 and cannot build it. A
+# newer SDK builds an older deployment target fine, so tracking latest is safe
+# and only a downgrade would break the build.
 
 name: CI
 
@@ -25,7 +27,7 @@ permissions: {}
 jobs:
   lint-and-test:
     name: Lint and test
-    runs-on: macos-26
+    runs-on: macos-latest
     permissions:
       contents: read
     steps:
@@ -35,8 +37,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # macos-26's default Xcode (26.x) carries the macOS 26 SDK; select the
-      # default symlink explicitly so a future image default change surfaces here.
+      # Select the default Xcode symlink explicitly so a future image default
+      # change surfaces here rather than as a confusing SDK error mid-build.
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
