@@ -144,4 +144,97 @@ struct CoordinatesTests {
         let clamped = Coordinates.clampingBelowMenuBar(frame, visibleTopY: 2185)
         #expect(clamped == CGRect(x: 200, y: 2185, width: 600, height: 400))
     }
+
+    // MARK: - Moving between displays
+
+    @Test
+    func movingBetweenDisplaysKeepsSizeAndProportionalCentre() {
+        let source = makeDisplay(origin: .zero, point: CGSize(width: 1600, height: 1000))
+        let target = makeDisplay(
+            origin: CGPoint(x: 1600, y: -200),
+            point: CGSize(width: 3200, height: 2000),
+            primary: false)
+        let window = CGRect(x: 160, y: 100, width: 800, height: 600)
+
+        let moved = Coordinates.moving(window, onto: target, from: source)
+
+        #expect(moved.size == window.size)
+        // Centre (560, 400) is 35% across and 40% down the source, so it lands
+        // 35%/40% into the target at (1120, 800); the origin is that less half
+        // the (unchanged) window size, offset by the target's global origin.
+        #expect(moved.origin == CGPoint(x: 1600 + 720, y: -200 + 500))
+    }
+
+    @Test
+    func movingAMaximisedWindowOntoALargerDisplayCentresIt() {
+        // A window filling its display has its origin at (0, 0), which maps to
+        // (0, 0) on any target - origin-mapping left it stranded in the corner
+        // at its old size. Mapping the centre puts it in the middle instead.
+        let source = makeDisplay(origin: .zero, point: CGSize(width: 1600, height: 1000))
+        let target = makeDisplay(
+            origin: CGPoint(x: 1600, y: 0),
+            point: CGSize(width: 3200, height: 2000),
+            primary: false)
+        let maximised = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+
+        let moved = Coordinates.moving(maximised, onto: target, from: source)
+
+        #expect(moved.size == maximised.size)
+        // Exactly centred: (3200 - 1600) / 2, (2000 - 1000) / 2.
+        #expect(moved.origin == CGPoint(x: 1600 + 800, y: 500))
+    }
+
+    @Test
+    func movingOntoTheSameDisplayIsIdentity() {
+        let display = makeDisplay(origin: CGPoint(x: -1600, y: 0), point: CGSize(width: 1600, height: 1000))
+        let window = CGRect(x: -1200, y: 300, width: 700, height: 500)
+        #expect(Coordinates.moving(window, onto: display, from: display) == window)
+    }
+
+    @Test
+    func movingOntoTheSameDisplayLeavesAnOverhangingWindowAlone() {
+        // The identity has to hold for a window hanging off an edge too, or a
+        // display-only rule would drag a deliberately-parked window back
+        // on-screen on every auto trigger.
+        let display = makeDisplay(origin: .zero, point: CGSize(width: 1600, height: 1000))
+        let offLeft = CGRect(x: -200, y: 100, width: 900, height: 700)
+        let offBottom = CGRect(x: 100, y: 800, width: 900, height: 700)
+        #expect(Coordinates.moving(offLeft, onto: display, from: display) == offLeft)
+        #expect(Coordinates.moving(offBottom, onto: display, from: display) == offBottom)
+    }
+
+    @Test
+    func movingClampsWindowInsideTheTargetDisplay() {
+        // Near the right edge of a wide panel, moving onto a narrow one would
+        // hang the window off the edge; clamp it back on.
+        let source = makeDisplay(origin: .zero, point: CGSize(width: 3200, height: 2000))
+        let target = makeDisplay(
+            origin: CGPoint(x: 3200, y: 0),
+            point: CGSize(width: 1600, height: 1000),
+            primary: false)
+        let window = CGRect(x: 3000, y: 1900, width: 800, height: 600)
+
+        let moved = Coordinates.moving(window, onto: target, from: source)
+
+        #expect(moved.size == window.size)
+        // Mapped centre puts it past the target's bottom-right, so both axes
+        // clamp to the far edge: (1600 - 800, 1000 - 600).
+        #expect(moved.origin == CGPoint(x: 3200 + 800, y: 400))
+    }
+
+    @Test
+    func movingPinsAWindowLargerThanTheTargetToTheTopLeft() {
+        // Not resizing is the point of the scope, so an oversized window is
+        // pinned rather than shrunk.
+        let source = makeDisplay(origin: .zero, point: CGSize(width: 3200, height: 2000))
+        let target = makeDisplay(
+            origin: CGPoint(x: 3200, y: 0),
+            point: CGSize(width: 1600, height: 1000),
+            primary: false)
+        let window = CGRect(x: 400, y: 300, width: 2400, height: 1600)
+
+        let moved = Coordinates.moving(window, onto: target, from: source)
+
+        #expect(moved == CGRect(x: 3200, y: 0, width: 2400, height: 1600))
+    }
 }

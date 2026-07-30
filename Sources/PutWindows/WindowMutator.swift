@@ -7,7 +7,7 @@ import PutCore
 
 /// Applies frame changes to live windows via the Accessibility API.
 public enum WindowMutator {
-    private static let log = PutLog.logger(category: "windows.mutator")
+    static let log = PutLog.logger(category: "windows.mutator")
 
     /// Navigation, not placement: activate the owning app and raise the window
     /// so macOS brings it forward and switches to whichever Space it currently
@@ -104,7 +104,7 @@ public enum WindowMutator {
     }
 
     /// Resize a window without touching its position. Used when a rule has
-    /// `restoresPosition == false`. Mirrors the retry/drift behaviour of
+    /// `restoreScope == .sizeOnly`. Mirrors the retry/drift behaviour of
     /// `setFrame` but only writes `kAXSizeAttribute` and only compares size
     /// dimensions when deciding success or bail-out.
     public static func setSize(_ handle: WindowHandle, to size: CGSize) throws {
@@ -231,7 +231,7 @@ public enum WindowMutator {
     /// Best-effort kick to break apps out of a latched geometry state.
     /// Failures are ignored — this is strictly additive behaviour and the
     /// subsequent write sequence will still run either way.
-    private static func nudge(_ element: AXUIElement) {
+    static func nudge(_ element: AXUIElement) {
         _ = AXUIElementPerformAction(element, kAXRaiseAction as CFString)
         _ = AXUIElementSetAttributeValue(
             element,
@@ -296,7 +296,7 @@ public enum WindowMutator {
             """)
     }
 
-    private static func retryOnCannotComplete(
+    static func retryOnCannotComplete(
         context: String,
         handle: WindowHandle,
         _ operation: () throws -> Void) throws
@@ -325,7 +325,7 @@ public enum WindowMutator {
         }
     }
 
-    private static func writePosition(_ element: AXUIElement, _ point: CGPoint) throws {
+    static func writePosition(_ element: AXUIElement, _ point: CGPoint) throws {
         var mutable = point
         guard let value = AXValueCreate(.cgPoint, &mutable) else {
             throw AXOperationError.operationFailed(.failure, "AXValueCreate(cgPoint)")
@@ -347,7 +347,7 @@ public enum WindowMutator {
         }
     }
 
-    private static func readFrame(_ element: AXUIElement) -> CGRect? {
+    static func readFrame(_ element: AXUIElement) -> CGRect? {
         guard let origin = readCGPoint(element, kAXPositionAttribute),
               let size = readCGSize(element, kAXSizeAttribute)
         else { return nil }

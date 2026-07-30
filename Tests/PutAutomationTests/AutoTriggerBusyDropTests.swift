@@ -73,6 +73,7 @@ private final class TestProbe: WindowProbing, @unchecked Sendable {
 private final class TestMutator: WindowMutating, @unchecked Sendable {
     func setFrame(_: WindowHandle, to _: CGRect) throws {}
     func setSize(_: WindowHandle, to _: CGSize) throws {}
+    func setPosition(_: WindowHandle, to _: CGPoint) throws {}
     func raise(_: WindowHandle) {}
 }
 

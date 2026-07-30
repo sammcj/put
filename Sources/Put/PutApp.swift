@@ -418,7 +418,14 @@ extension AppDelegate {
             copyright: "© \(yearString()) Sam McLeod",
             links: [
                 AboutLink(title: "GitHub", url: URL(string: "https://github.com/sammcj/put")!),
-                AboutLink(title: "smcleod.net", url: URL(string: "https://smcleod.net")!)
+                AboutLink(title: "smcleod.net", url: URL(string: "https://smcleod.net")!),
+                AboutLink(
+                    title: "GPL-3.0",
+                    url: URL(string: "https://github.com/sammcj/put/blob/main/LICENSE")!),
+                AboutLink(
+                    title: "Credits",
+                    url: URL(
+                        string: "https://github.com/sammcj/put/blob/main/THIRD-PARTY-NOTICES.md")!)
             ])
     }
 

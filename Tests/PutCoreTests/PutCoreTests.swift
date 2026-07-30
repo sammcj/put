@@ -261,10 +261,10 @@ struct RuleLayoutTests {
     }
 
     @Test
-    func ruleRestoresPositionDefaultsTrue() throws {
+    func ruleRestoreScopeDefaultsToSizeAndPosition() throws {
         // Rule's default initializer and the JSON decoder must both yield
-        // restoresPosition = true so existing on-disk configs keep their
-        // current behaviour after the schema gains the new field.
+        // .sizeAndPosition so existing on-disk configs keep their current
+        // behaviour after the schema gains the new field.
         let fp = DisplayFingerprint(
             uuid: UUID(),
             vendorID: nil,
@@ -282,9 +282,9 @@ struct RuleLayoutTests {
             matchCriteria: MatchCriteria(bundleID: "com.apple.Safari"),
             targetDisplay: fp,
             frame: frame)
-        #expect(rule.restoresPosition)
+        #expect(rule.restoreScope == .sizeAndPosition)
 
-        // Legacy JSON predating the field round-trips with restoresPosition true.
+        // Legacy JSON predating both fields round-trips as .sizeAndPosition.
         let frameJSON = try String(data: JSONEncoder().encode(frame), encoding: .utf8) ?? "{}"
         let fpJSON = try String(data: JSONEncoder().encode(fp), encoding: .utf8) ?? "{}"
         let criteriaJSON = try String(
@@ -302,11 +302,78 @@ struct RuleLayoutTests {
         }
         """
         let decoded = try JSONDecoder().decode(Rule.self, from: Data(json.utf8))
-        #expect(decoded.restoresPosition)
+        #expect(decoded.restoreScope == .sizeAndPosition)
     }
 
     @Test
-    func ruleRestoresPositionRoundtrips() throws {
+    func ruleRestoreScopeDecodesLegacyRestoresPositionFlag() throws {
+        // Configs written between the size-only feature and the display-only
+        // scope carry `restoresPosition` and no `restoreScope`; false must map
+        // to .sizeOnly, not silently widen back to a full restore.
+        let fp = DisplayFingerprint(
+            uuid: UUID(),
+            vendorID: nil,
+            productID: nil,
+            serialNumber: nil,
+            pointSize: CGSize(width: 1920, height: 1080),
+            pixelSize: CGSize(width: 1920, height: 1080),
+            scaleFactor: 1,
+            globalOrigin: .zero,
+            isPrimary: true)
+        let frame = WindowFrame(
+            absolute: CGRect(x: 100, y: 100, width: 800, height: 600),
+            normalised: UnitRect(x: 0.05, y: 0.1, width: 0.4, height: 0.5))
+        let frameJSON = try String(data: JSONEncoder().encode(frame), encoding: .utf8) ?? "{}"
+        let fpJSON = try String(data: JSONEncoder().encode(fp), encoding: .utf8) ?? "{}"
+        let criteriaJSON = try String(
+            data: JSONEncoder().encode(MatchCriteria(bundleID: "com.apple.Safari")),
+            encoding: .utf8) ?? "{}"
+        let json = """
+        {
+            "id": "\(UUID().uuidString)",
+            "descriptiveLabel": "",
+            "matchCriteria": \(criteriaJSON),
+            "targetDisplay": \(fpJSON),
+            "frame": \(frameJSON),
+            "missingDisplayPolicy": "primaryProportional",
+            "isEnabled": true,
+            "restoresPosition": false
+        }
+        """
+        let decoded = try JSONDecoder().decode(Rule.self, from: Data(json.utf8))
+        #expect(decoded.restoreScope == .sizeOnly)
+    }
+
+    @Test
+    func ruleEncodesLegacyRestoresPositionAlongsideScope() throws {
+        // The legacy key is still written so a config round-tripping through an
+        // older build degrades to size-only rather than re-asserting a position
+        // the user deliberately gave up.
+        let fp = DisplayFingerprint(
+            uuid: UUID(),
+            vendorID: nil,
+            productID: nil,
+            serialNumber: nil,
+            pointSize: CGSize(width: 1920, height: 1080),
+            pixelSize: CGSize(width: 1920, height: 1080),
+            scaleFactor: 1,
+            globalOrigin: .zero,
+            isPrimary: true)
+        let rule = Rule(
+            matchCriteria: MatchCriteria(bundleID: "com.apple.Safari"),
+            targetDisplay: fp,
+            frame: WindowFrame(
+                absolute: CGRect(x: 100, y: 100, width: 800, height: 600),
+                normalised: UnitRect(x: 0.05, y: 0.1, width: 0.4, height: 0.5)),
+            restoreScope: .displayOnly)
+        let object = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(rule)) as? [String: Any]
+        #expect(object?["restoreScope"] as? String == "displayOnly")
+        #expect(object?["restoresPosition"] as? Bool == false)
+    }
+
+    @Test
+    func ruleRestoreScopeRoundtrips() throws {
         let fp = DisplayFingerprint(
             uuid: UUID(),
             vendorID: nil,
@@ -324,10 +391,10 @@ struct RuleLayoutTests {
             matchCriteria: MatchCriteria(bundleID: "com.apple.Safari"),
             targetDisplay: fp,
             frame: frame,
-            restoresPosition: false)
+            restoreScope: .displayOnly)
         let data = try JSONEncoder().encode(rule)
         let decoded = try JSONDecoder().decode(Rule.self, from: data)
-        #expect(!decoded.restoresPosition)
+        #expect(decoded.restoreScope == .displayOnly)
         #expect(decoded == rule)
     }
 

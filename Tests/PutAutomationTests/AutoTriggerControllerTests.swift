@@ -314,7 +314,64 @@ struct AutoTriggerControllerTests {
         // Without cancellation, two stacked schedules of 6 attempts each
         // would compound to 12+. Cancellation caps the total near one full
         // schedule plus the partial first run.
+        //
+        // The upper bound carries slack because the split between "attempt
+        // belongs to the cancelled schedule" and "cancellation has taken
+        // effect" is not observable: a 50ms tick can land between sampling
+        // countAfterFirstLaunch and the relaunch that cancels it, counting an
+        // attempt this arithmetic attributes to neither run. One full schedule
+        // plus two straddling attempts still separates cancelled (<= 8) from
+        // uncancelled (12+), which is the whole point of the test. Tightening
+        // this to +6 makes it fail roughly one run in six.
         #expect(total >= countAfterFirstLaunch + 4)
-        #expect(total <= countAfterFirstLaunch + 6)
+        #expect(total <= countAfterFirstLaunch + 8)
+    }
+
+    @Test
+    func queuedDisplayOnlyRuleWritesPositionOnlyAndDrainsTheQueue() async throws {
+        // The reconnect path resolves per window and picks the write from the
+        // rule's scope. A display-only rule must reach setPosition and neither
+        // setFrame nor setSize, and the rule must leave the queue.
+        guard let primary = try? DisplayProbe.snapshot().first(where: { $0.isPrimary }) else { return }
+        let handle = makeWindowHandle(
+            bundleID: "com.example.one",
+            frame: CGRect(x: 120, y: 140, width: 600, height: 400))
+        let rule = Rule(
+            matchCriteria: MatchCriteria(bundleID: "com.example.one", applyToAllWindows: true),
+            targetDisplay: primary,
+            frame: WindowFrame(
+                absolute: CGRect(x: 0, y: 0, width: 100, height: 100),
+                normalised: UnitRect(x: 0, y: 0, width: 0.1, height: 0.1)),
+            missingDisplayPolicy: .queueForReconnect,
+            restoreScope: .displayOnly)
+        let layout = Layout(id: UUID(), name: "L", rules: [rule])
+        let state = AppState(
+            config: Config(layouts: [layout], activeLayoutID: layout.id),
+            queuedRuleIDs: [rule.id])
+        let store = try makeStore()
+        let probe = StubWindowProbe(handles: [handle])
+        let mutator = RecordingWindowMutator()
+        let coordinator = ActionCoordinator(
+            state: state,
+            store: store,
+            probe: probe,
+            mutator: mutator,
+            gate: StubAccessibilityGate(trusted: true))
+        let triggers = AutoTriggerController(
+            state: state,
+            coordinator: coordinator,
+            probe: probe,
+            mutator: mutator,
+            debounceInterval: 0)
+
+        await triggers.fulfilQueuedRules()
+
+        #expect(mutator.frameCalls.isEmpty)
+        #expect(mutator.sizeCalls.isEmpty)
+        #expect(mutator.positionCalls.count == 1)
+        // Already on the target display, so the write is the window's own
+        // origin - the no-op the suppression exemption relies on.
+        #expect(mutator.positionCalls.first?.1 == handle.descriptor.frame.origin)
+        #expect(state.queuedRuleIDs.isEmpty)
     }
 }

@@ -38,8 +38,9 @@ public extension ActionCoordinator {
             offSpaceBundleIDs: offSpaceBundleIDs)
     }
 
-    /// Pure detection, factored out for testing. An enabled, position-restoring
-    /// rule whose app is running and has a window on another Space (in
+    /// Pure detection, factored out for testing. An enabled rule that moves its
+    /// window (so not a size-only rule, which has no opinion about where the
+    /// window lives) whose app is running and has a window on another Space (in
     /// `offSpaceBundleIDs`) but none matching here. Deduplicated by bundle ID
     /// so an app with several rules surfaces a single recover entry.
     static func unreachableRules(
@@ -51,7 +52,7 @@ public extension ActionCoordinator {
         var seenBundles: Set<String> = []
         var result: [UnreachableWindow] = []
         for rule in layout.rules {
-            guard rule.isEnabled, rule.restoresPosition else { continue }
+            guard rule.isEnabled, rule.restoreScope.restoresPosition else { continue }
             let bundleID = rule.matchCriteria.bundleID
             guard runningBundleIDs.contains(bundleID) else { continue }
             // The window exists elsewhere (not closed) and isn't reachable here.

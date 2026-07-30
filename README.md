@@ -10,6 +10,10 @@ Put remembers and restores the display, size and position of windows when trigge
 - Grant accessibility permissions for the app to manage window positions and sizes
 - For development: Swift toolchain (bundled with XCode), `swiftlint` and `swiftformat`
 
+## Install
+
+Download the latest `.dmg` from [Releases](https://github.com/sammcj/put/releases) and drag Put to Applications. Builds are signed with a Developer ID and notarised, so Gatekeeper opens them without the right-click workaround. On first launch Put asks for Accessibility and walks you through granting it.
+
 ## Build and run
 
 ```shell
@@ -24,6 +28,16 @@ make run        # build and launch the bundled app
 A layout is a named set of window rules scoped to a screen configuration. Put keeps separate layouts for, say, "laptop only" versus "docked with external display", so the same app can have different saved placements per setup. Layouts are managed in Settings → Layouts, and each rule belongs to the layout selected in Settings → Rules. Each layout can also be given its own activation hotkey.
 
 Saving respects the active layout's screen scope: a window on a monitor that isn't part of that layout's configuration is skipped rather than stamped in with an unrestorable rule, and the skip is reported so it isn't silent.
+
+## What a rule restores
+
+Each rule chooses how much of its saved placement it re-asserts, in Settings → Rules → Saved placement:
+
+- **Size and position** (default) - put the window back on its saved display at its saved size and position.
+- **Size only** - force the saved size and leave the window wherever it currently sits.
+- **Display only** - move the window onto its saved display and change nothing else. It keeps its current size, and lands roughly where it sat on the display it came from - a window filling a laptop screen ends up centred on a larger external one rather than in the corner - nudged inwards if it would otherwise hang off the edge of a smaller screen. A window already on the right display is left exactly as it is, even if it's parked half off-screen.
+
+Display only is for apps that open on the wrong screen but whose window size you want to keep - VS Code and Electron apps in particular. The full frame is saved whichever option is chosen, so narrowing the scope and widening it again later doesn't lose the original coordinates.
 
 ## Default hotkeys
 
@@ -69,6 +83,12 @@ make clean      # remove .build/ and Put.app/
 
 Put is distributed as a Developer ID signed, notarised `.app`.
 
+## Acknowledgements
+
+Global hotkeys and the shortcut recorder controls use [KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) by Sindre Sorhus, under the MIT licence. The full notice is in [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md), which also ships inside the app bundle.
+
 ## License
 
-Copyright © 2026 Sam McLeod. All rights reserved.
+Copyright 2026 Sam McLeod. Licensed under the [GNU General Public License v3.0](./LICENSE).
+
+Use it anywhere, including at work, and fork it freely. If you distribute Put or anything derived from it, that distribution has to carry the same licence with its source and keep the copyright notice, so no one can rebrand it as closed-source software of their own.

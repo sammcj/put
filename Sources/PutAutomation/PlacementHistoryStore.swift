@@ -66,10 +66,12 @@ final class PlacementHistoryStore {
     }
 
     /// Whether an `.auto` replay of `rule` should be suppressed because the user
-    /// moved or resized the window away from where Put last placed it. Size-only
-    /// rules (`restoresPosition == false`) never suppress: they are a deliberate
-    /// "force this size" choice, and the moved-by-user check compares against a
-    /// full target frame that a size-only rule never wrote. The caller gates
+    /// moved or resized the window away from where Put last placed it. Only
+    /// `.sizeAndPosition` rules suppress, because only they write a full target
+    /// frame for the moved-by-user check to compare against. Size-only rules are
+    /// a deliberate "force this size" choice; display-only rules recompute their
+    /// target from the window's current frame, so a window already on the right
+    /// display resolves to a no-op and needs no suppression. The caller gates
     /// this on `autoTriggers.respectManualMoves`, so it isn't a parameter here.
     func shouldSuppressAutoReplay(
         rule: Rule,
@@ -78,7 +80,7 @@ final class PlacementHistoryStore {
         targetDisplay: DisplayFingerprint,
         source: RestoreSource) -> Bool
     {
-        guard source == .auto, rule.restoresPosition else {
+        guard source == .auto, rule.restoreScope == .sizeAndPosition else {
             return false
         }
         return PlacementHistory.shouldSkipReplay(

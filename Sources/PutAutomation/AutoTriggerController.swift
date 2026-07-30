@@ -291,7 +291,11 @@ public final class AutoTriggerController {
     /// If any rules are awaiting a reconnect and their display is now
     /// present, apply them and clear them from the queue. AX and display
     /// probes run detached so the menu bar doesn't block on XPC.
-    private func fulfilQueuedRules() async {
+    ///
+    /// Internal so tests can drive the reconnect path directly; synthesising
+    /// the CGDisplayReconfiguration event that normally reaches it isn't
+    /// possible in the xctest host.
+    func fulfilQueuedRules() async {
         guard !state.queuedRuleIDs.isEmpty else { return }
         guard let activeLayout = state.activeLayout else { return }
         let queuedIDs = state.queuedRuleIDs
@@ -346,42 +350,74 @@ public final class AutoTriggerController {
         let matchingWindows = liveWindows.filter { RuleMatcher.matches(rule, against: $0.descriptor) }
         guard !matchingWindows.isEmpty else { return false }
 
-        switch PlacementEngine.resolve(rule: rule, displays: displays) {
-        case let .applyFrame(frame, _, _, _):
-            let handlesToMove = matchingWindows
-            let mutator = mutator
-            // Honour the rule's `restoresPosition` contract (a size-only rule
-            // must not have its position rewritten on reconnect), route through
-            // the injected mutator seam, and surface write failures instead of
-            // swallowing them with `try?`.
-            let restoresPosition = rule.restoresPosition
-            let failures = await Task.detached(priority: .userInitiated) { () -> Int in
-                var failed = 0
-                for handle in handlesToMove {
-                    do {
-                        if restoresPosition {
-                            try mutator.setFrame(handle, to: frame)
-                        } else {
-                            try mutator.setSize(handle, to: frame.size)
-                        }
-                    } catch {
-                        failed += 1
-                    }
-                }
-                return failed
-            }.value
-            if failures > 0 {
-                log.warning(
-                    """
-                    Queued-rule fulfilment: \(failures, privacy: .public) of \
-                    \(handlesToMove.count, privacy: .public) writes failed \
-                    for rule \(ruleID.uuidString, privacy: .public)
-                    """)
-            }
-            return true
-        default:
-            return false
+        // Resolved per window rather than once for the rule: a display-only
+        // rule derives its target from where each window currently sits, so
+        // two windows of the same app can land in different places.
+        //
+        // Clamped below the menu bar for the same reason `ActionCoordinator`
+        // clamps: macOS refuses to place a window above it, so an unreachable
+        // target burns the full retry budget and then reports a failed write.
+        // Display-only targets reach that line routinely - a window taller than
+        // the display it's moving onto pins to local y = 0. The display comes
+        // from the engine's own decision rather than `match`, so the clamp
+        // can't end up using a different display's menu-bar line.
+        let targets: [(handle: WindowHandle, frame: CGRect)] = matchingWindows.compactMap { handle in
+            guard case let .applyFrame(frame, display, _, _) = PlacementEngine.resolve(
+                rule: rule,
+                displays: displays,
+                currentFrame: handle.descriptor.frame)
+            else { return nil }
+            let clamped = ActionCoordinator.clampingIfMoving(
+                frame,
+                from: handle.descriptor.frame,
+                clamp: { resolved in
+                    guard let visibleTop = DisplayProbe.visibleTopY(for: display) else { return resolved }
+                    return Coordinates.clampingBelowMenuBar(resolved, visibleTopY: visibleTop)
+                })
+            return (handle, clamped)
         }
+        guard !targets.isEmpty else { return false }
+
+        let failures = await Self.write(targets, scope: rule.restoreScope, using: mutator)
+        if failures > 0 {
+            log.warning(
+                """
+                Queued-rule fulfilment: \(failures, privacy: .public) of \
+                \(targets.count, privacy: .public) writes failed \
+                for rule \(ruleID.uuidString, privacy: .public)
+                """)
+        }
+        return true
+    }
+
+    /// Apply each resolved target off the main actor, honouring the rule's
+    /// restore scope: a size-only rule must not have its position rewritten on
+    /// reconnect, and a display-only rule must not be resized. Routes through
+    /// the injected mutator seam and returns the failure count rather than
+    /// swallowing errors with `try?`.
+    private static func write(
+        _ targets: [(handle: WindowHandle, frame: CGRect)],
+        scope: RestoreScope,
+        using mutator: any WindowMutating) async -> Int
+    {
+        await Task.detached(priority: .userInitiated) { () -> Int in
+            var failed = 0
+            for target in targets {
+                do {
+                    switch scope {
+                    case .sizeAndPosition:
+                        try mutator.setFrame(target.handle, to: target.frame)
+                    case .sizeOnly:
+                        try mutator.setSize(target.handle, to: target.frame.size)
+                    case .displayOnly:
+                        try mutator.setPosition(target.handle, to: target.frame.origin)
+                    }
+                } catch {
+                    failed += 1
+                }
+            }
+            return failed
+        }.value
     }
 }
 

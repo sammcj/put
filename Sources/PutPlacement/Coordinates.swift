@@ -73,6 +73,73 @@ public enum Coordinates {
         return CGRect(x: frame.minX, y: visibleTopY, width: frame.width, height: frame.height)
     }
 
+    /// Move a global-AX frame from `source` onto `target` without resizing it,
+    /// which is what a `.displayOnly` rule asserts.
+    ///
+    /// `source` and `target` must come from the same `DisplayProbe` snapshot -
+    /// the same-display check below is whole-struct equality, so fingerprints
+    /// taken from different snapshots (different arrangement, different
+    /// resolution) would compare unequal and lose the identity guarantee.
+    ///
+    /// Same display in and out is the identity, returned before any other work:
+    /// a display-only rule must leave a window that is already on its target
+    /// display strictly alone, including one the user deliberately parked
+    /// hanging off an edge. That guarantee is what lets the auto-replay
+    /// suppression check skip display-only rules entirely - see
+    /// `PlacementHistoryStore.shouldSuppressAutoReplay`.
+    ///
+    /// Across displays it's the window's *centre* that maps proportionally: a
+    /// window centred 30% across and 40% down `source` ends up centred 30%
+    /// across and 40% down `target`, keeping its size.
+    ///
+    /// Mapping the centre rather than the origin is what makes a window filling
+    /// its display land centred on a bigger one. A maximised window's origin is
+    /// (0, 0), which maps to (0, 0) on any display, so origin-mapping dumped it
+    /// in the top-left corner at its old size. Its centre is (50%, 50%), which
+    /// maps to the middle of the target. The same reasoning improves windows
+    /// near the right or bottom edges, whose origin sits well inside the
+    /// display even though the window doesn't.
+    ///
+    /// The result is clamped so the window sits fully within the target -
+    /// otherwise a window near the edge of a wide panel would hang off a narrow
+    /// one. A window larger than the target on an axis is pinned to that edge
+    /// rather than shrunk; not resizing is the whole point of the scope.
+    public static func moving(
+        _ global: CGRect,
+        onto target: DisplayFingerprint,
+        from source: DisplayFingerprint) -> CGRect
+    {
+        guard source != target else { return global }
+
+        let sourceWidth = max(source.pointSize.width, 1)
+        let sourceHeight = max(source.pointSize.height, 1)
+        let localCentre = CGPoint(
+            x: global.midX - source.globalOrigin.x,
+            y: global.midY - source.globalOrigin.y)
+        // Multiply before dividing: keeps whole-point arithmetic exact for the
+        // common case where the two panels are simple multiples of each other.
+        let mappedCentre = CGPoint(
+            x: localCentre.x * target.pointSize.width / sourceWidth,
+            y: localCentre.y * target.pointSize.height / sourceHeight)
+        let mappedOrigin = CGPoint(
+            x: mappedCentre.x - global.size.width / 2,
+            y: mappedCentre.y - global.size.height / 2)
+
+        let clamped = CGPoint(
+            x: clamp(mappedOrigin.x, upperBound: target.pointSize.width - global.size.width),
+            y: clamp(mappedOrigin.y, upperBound: target.pointSize.height - global.size.height))
+
+        return CGRect(origin: clamped, size: global.size)
+            .offsetBy(dx: target.globalOrigin.x, dy: target.globalOrigin.y)
+    }
+
+    /// Clamp to `0...upperBound`, collapsing to 0 when the bound is negative
+    /// (the window is larger than the display on that axis).
+    private static func clamp(_ value: CGFloat, upperBound: CGFloat) -> CGFloat {
+        guard upperBound > 0 else { return 0 }
+        return min(max(value, 0), upperBound)
+    }
+
     /// Pick the display whose bounds contain the greatest area of the given
     /// global-space rect. Used at save time to attribute a window to a
     /// display.

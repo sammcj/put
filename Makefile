@@ -24,31 +24,26 @@ DEV_SIGNING_IDENTITY := $(shell security find-generic-password -s put-release -a
 # Signing cascade: APPLE_SIGNING_IDENTITY env > keychain dev identity > ad-hoc.
 CODESIGN_IDENTITY ?= $(if $(APPLE_SIGNING_IDENTITY),$(APPLE_SIGNING_IDENTITY),$(if $(DEV_SIGNING_IDENTITY),$(DEV_SIGNING_IDENTITY),-))
 
-# Release credentials: Keychain-first with fallback to Undertone's keychain
-# service (certs + API keys are team-scoped, so the same credentials work for
-# any of Sam's apps). Populate with `make setup-release-keychain`.
+# Release credentials: Keychain-first, service `put-release`. Populate with
+# `make setup-release-keychain`.
 # CI fallback: if the Keychain entries are empty (e.g. GitHub Actions),
 # fall back to the matching APPLE_* env vars.
-RELEASE_SIGNING_IDENTITY := $(shell security find-generic-password -s put-release       -a signing-identity -w 2>/dev/null || \
-                                    security find-generic-password -s undertone-release -a signing-identity -w 2>/dev/null)
+RELEASE_SIGNING_IDENTITY := $(shell security find-generic-password -s put-release -a signing-identity -w 2>/dev/null)
 ifeq ($(strip $(RELEASE_SIGNING_IDENTITY)),)
 RELEASE_SIGNING_IDENTITY := $(APPLE_SIGNING_IDENTITY)
 endif
 
-RELEASE_API_ISSUER       := $(shell security find-generic-password -s put-release       -a api-issuer       -w 2>/dev/null || \
-                                    security find-generic-password -s undertone-release -a api-issuer       -w 2>/dev/null)
+RELEASE_API_ISSUER       := $(shell security find-generic-password -s put-release -a api-issuer -w 2>/dev/null)
 ifeq ($(strip $(RELEASE_API_ISSUER)),)
 RELEASE_API_ISSUER := $(APPLE_API_ISSUER)
 endif
 
-RELEASE_API_KEY          := $(shell security find-generic-password -s put-release       -a api-key          -w 2>/dev/null || \
-                                    security find-generic-password -s undertone-release -a api-key          -w 2>/dev/null)
+RELEASE_API_KEY          := $(shell security find-generic-password -s put-release -a api-key -w 2>/dev/null)
 ifeq ($(strip $(RELEASE_API_KEY)),)
 RELEASE_API_KEY := $(APPLE_API_KEY)
 endif
 
-RELEASE_API_KEY_PATH     := $(shell security find-generic-password -s put-release       -a api-key-path     -w 2>/dev/null || \
-                                    security find-generic-password -s undertone-release -a api-key-path     -w 2>/dev/null)
+RELEASE_API_KEY_PATH     := $(shell security find-generic-password -s put-release -a api-key-path -w 2>/dev/null)
 ifeq ($(strip $(RELEASE_API_KEY_PATH)),)
 RELEASE_API_KEY_PATH := $(APPLE_API_KEY_PATH)
 endif
@@ -87,10 +82,12 @@ build:
 .PHONY: bundle
 bundle: build icon $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME) sign
 
-$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME): $(BINARY) Resources/Info.plist.tmpl Resources/Put.entitlements
+$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME): $(BINARY) Resources/Info.plist.tmpl Resources/Put.entitlements THIRD-PARTY-NOTICES.md
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	@mkdir -p $(APP_BUNDLE)/Contents/Resources
 	cp $(BINARY) $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
+	@# MIT requires its notice ship with the binary, not only in the repo.
+	cp THIRD-PARTY-NOTICES.md $(APP_BUNDLE)/Contents/Resources/THIRD-PARTY-NOTICES.md
 	sed -e 's/__VERSION__/$(VERSION)/g' \
 	    -e 's/__BUILD__/$(BUILD_NUMBER)/g' \
 	    -e 's/__YEAR__/$(YEAR)/g' \
@@ -315,54 +312,53 @@ setup-dev-signing:
 
 .PHONY: setup-release-keychain
 setup-release-keychain:
+	@test -t 0 || { echo "setup-release-keychain needs an interactive terminal."; \
+	  echo "stdin is not a tty, so read would take EOF and store empty credentials."; \
+	  exit 1; }
 	@echo "Store Apple release credentials in macOS Keychain"
 	@echo "Service: put-release"
 	@echo ""
 	@echo "Existing values will be updated if already present. Press Enter to accept"
 	@echo "detected defaults (shown in [brackets])."
 	@echo ""
-	@existing_identity=$$(security find-generic-password -s put-release       -a signing-identity -w 2>/dev/null); \
-	 undertone_identity=$$(security find-generic-password -s undertone-release -a signing-identity -w 2>/dev/null); \
-	 default_identity=$${existing_identity:-$$undertone_identity}; \
+	@default_identity=$$(security find-generic-password -s put-release -a signing-identity -w 2>/dev/null); \
 	 if [ -n "$$default_identity" ]; then \
 	   read -p "Developer ID Application signing identity [$$default_identity]: " identity; \
 	   identity=$${identity:-$$default_identity}; \
 	 else \
 	   read -p "Developer ID Application signing identity: " identity; \
 	 fi; \
+	 [ -n "$$identity" ] || { echo "Empty value; nothing changed."; exit 1; }; \
 	 security delete-generic-password -s put-release -a signing-identity 2>/dev/null || true; \
 	 security add-generic-password -s put-release -a signing-identity -w "$$identity"
-	@existing_issuer=$$(security find-generic-password -s put-release       -a api-issuer -w 2>/dev/null); \
-	 undertone_issuer=$$(security find-generic-password -s undertone-release -a api-issuer -w 2>/dev/null); \
-	 default_issuer=$${existing_issuer:-$$undertone_issuer}; \
+	@default_issuer=$$(security find-generic-password -s put-release -a api-issuer -w 2>/dev/null); \
 	 if [ -n "$$default_issuer" ]; then \
 	   read -p "App Store Connect API Issuer ID [$$default_issuer]: " issuer; \
 	   issuer=$${issuer:-$$default_issuer}; \
 	 else \
 	   read -p "App Store Connect API Issuer ID: " issuer; \
 	 fi; \
+	 [ -n "$$issuer" ] || { echo "Empty value; nothing changed."; exit 1; }; \
 	 security delete-generic-password -s put-release -a api-issuer 2>/dev/null || true; \
 	 security add-generic-password -s put-release -a api-issuer -w "$$issuer"
-	@existing_key=$$(security find-generic-password -s put-release       -a api-key -w 2>/dev/null); \
-	 undertone_key=$$(security find-generic-password -s undertone-release -a api-key -w 2>/dev/null); \
-	 default_key=$${existing_key:-$$undertone_key}; \
+	@default_key=$$(security find-generic-password -s put-release -a api-key -w 2>/dev/null); \
 	 if [ -n "$$default_key" ]; then \
 	   read -p "App Store Connect API Key ID [$$default_key]: " key; \
 	   key=$${key:-$$default_key}; \
 	 else \
 	   read -p "App Store Connect API Key ID: " key; \
 	 fi; \
+	 [ -n "$$key" ] || { echo "Empty value; nothing changed."; exit 1; }; \
 	 security delete-generic-password -s put-release -a api-key 2>/dev/null || true; \
 	 security add-generic-password -s put-release -a api-key -w "$$key"
-	@existing_path=$$(security find-generic-password -s put-release       -a api-key-path -w 2>/dev/null); \
-	 undertone_path=$$(security find-generic-password -s undertone-release -a api-key-path -w 2>/dev/null); \
-	 default_path=$${existing_path:-$$undertone_path}; \
+	@default_path=$$(security find-generic-password -s put-release -a api-key-path -w 2>/dev/null); \
 	 if [ -n "$$default_path" ]; then \
 	   read -p "Path to .p8 key file [$$default_path]: " keypath; \
 	   keypath=$${keypath:-$$default_path}; \
 	 else \
 	   read -p "Path to .p8 key file: " keypath; \
 	 fi; \
+	 [ -n "$$keypath" ] || { echo "Empty value; nothing changed."; exit 1; }; \
 	 security delete-generic-password -s put-release -a api-key-path 2>/dev/null || true; \
 	 security add-generic-password -s put-release -a api-key-path -w "$$keypath"
 	@echo ""

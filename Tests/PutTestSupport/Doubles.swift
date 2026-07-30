@@ -52,6 +52,7 @@ public final class StubWindowProbe: WindowProbing, @unchecked Sendable {
 public final class RecordingWindowMutator: WindowMutating, @unchecked Sendable {
     public var frameCalls: [(WindowHandle, CGRect)] = []
     public var sizeCalls: [(WindowHandle, CGSize)] = []
+    public var positionCalls: [(WindowHandle, CGPoint)] = []
     public var raiseCalls: [WindowHandle] = []
 
     public init() {}
@@ -62,6 +63,10 @@ public final class RecordingWindowMutator: WindowMutating, @unchecked Sendable {
 
     public func setSize(_ handle: WindowHandle, to size: CGSize) throws {
         sizeCalls.append((handle, size))
+    }
+
+    public func setPosition(_ handle: WindowHandle, to origin: CGPoint) throws {
+        positionCalls.append((handle, origin))
     }
 
     public func raise(_ handle: WindowHandle) {

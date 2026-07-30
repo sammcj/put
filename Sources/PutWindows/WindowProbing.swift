@@ -72,6 +72,7 @@ public struct DefaultWindowProbe: WindowProbing {
 public protocol WindowMutating: Sendable {
     func setFrame(_ handle: WindowHandle, to frame: CGRect) throws
     func setSize(_ handle: WindowHandle, to size: CGSize) throws
+    func setPosition(_ handle: WindowHandle, to origin: CGPoint) throws
     /// Navigation only: bring the window forward, switching Spaces to follow
     /// it. Best-effort, no persistent side effect, so it does not throw.
     func raise(_ handle: WindowHandle)
@@ -85,6 +86,10 @@ public struct DefaultWindowMutator: WindowMutating {
 
     public func setSize(_ handle: WindowHandle, to size: CGSize) throws {
         try WindowMutator.setSize(handle, to: size)
+    }
+
+    public func setPosition(_ handle: WindowHandle, to origin: CGPoint) throws {
+        try WindowMutator.setPosition(handle, to: origin)
     }
 
     public func raise(_ handle: WindowHandle) {

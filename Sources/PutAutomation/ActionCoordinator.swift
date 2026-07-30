@@ -70,24 +70,24 @@ public final class ActionCoordinator {
     /// Save the currently focused window as a rule that applies to every
     /// window of that app (bundle-wide, title-agnostic). Bound to the
     /// default Shift+F5 hotkey.
-    public func saveFocusedWindowAllApp(restoresPosition: Bool? = nil) async {
+    public func saveFocusedWindowAllApp(restoreScope: RestoreScope? = nil) async {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; saveFocusedWindowAllApp aborted")
             return
         }
         guard let handle = await resolveFocusedWindow(action: "saveFocusedWindowAllApp") else { return }
-        await save(windows: [handle], applyToAll: true, restoresPosition: restoresPosition)
+        await save(windows: [handle], applyToAll: true, restoreScope: restoreScope)
     }
 
     /// Save the currently focused window as a rule that matches only windows
     /// with the same title. Opt-in hotkey (no default binding).
-    public func saveFocusedWindowTitleOnly(restoresPosition: Bool? = nil) async {
+    public func saveFocusedWindowTitleOnly(restoreScope: RestoreScope? = nil) async {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; saveFocusedWindowTitleOnly aborted")
             return
         }
         guard let handle = await resolveFocusedWindow(action: "saveFocusedWindowTitleOnly") else { return }
-        await save(windows: [handle], applyToAll: false, restoresPosition: restoresPosition)
+        await save(windows: [handle], applyToAll: false, restoreScope: restoreScope)
     }
 
     public func restoreActiveWindow() async {
@@ -101,7 +101,7 @@ public final class ActionCoordinator {
         _ = await restore(windows: [handle], source: .explicit)
     }
 
-    public func saveAllWindows(restoresPosition: Bool? = nil) async {
+    public func saveAllWindows(restoreScope: RestoreScope? = nil) async {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; saveAllWindows aborted")
             return
@@ -110,7 +110,7 @@ public final class ActionCoordinator {
         let handles = await Task.detached(priority: .userInitiated, operation: {
             probe.snapshot()
         }).value
-        await save(windows: handles, applyToAll: false, restoresPosition: restoresPosition)
+        await save(windows: handles, applyToAll: false, restoreScope: restoreScope)
     }
 
     @discardableResult
@@ -144,12 +144,12 @@ public final class ActionCoordinator {
     /// Save a specific set of windows. Used by the menu bar "Save All Windows
     /// for <App>" action. Each window becomes its own title-specific rule so
     /// the exact arrangement is captured.
-    public func save(windowsForUI handles: [WindowHandle], restoresPosition: Bool? = nil) async {
+    public func save(windowsForUI handles: [WindowHandle], restoreScope: RestoreScope? = nil) async {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; per-app save aborted")
             return
         }
-        await save(windows: handles, applyToAll: false, restoresPosition: restoresPosition)
+        await save(windows: handles, applyToAll: false, restoreScope: restoreScope)
     }
 
     /// Append a copy of an existing rule with a new UUID and a "(copy)"
@@ -422,11 +422,18 @@ extension ActionCoordinator {
         source: RestoreSource,
         tally: inout RestoreTally) async
     {
-        switch PlacementEngine.resolve(rule: rule, displays: displays) {
+        switch PlacementEngine.resolve(
+            rule: rule,
+            displays: displays,
+            currentFrame: handle.descriptor.frame)
+        {
         case let .applyFrame(resolved, display, _, fidelity):
             // Keep the target reachable: a frame above the menu bar would be
             // clamped down by macOS and drift forever (see clampToVisibleArea).
-            let frame = clampToVisibleArea(resolved, on: display)
+            let frame = Self.clampingIfMoving(
+                resolved,
+                from: handle.descriptor.frame,
+                clamp: { clampToVisibleArea($0, on: display) })
             if state.config.autoTriggers.respectManualMoves,
                history.shouldSuppressAutoReplay(
                    rule: rule,
@@ -482,7 +489,7 @@ extension ActionCoordinator {
             mutator: mutator,
             handle: handle,
             frame: frame,
-            restoresPosition: rule.restoresPosition)
+            scope: rule.restoreScope)
         {
         case .applied:
             tally.applied += 1
@@ -523,20 +530,23 @@ extension ActionCoordinator {
     /// Sendable `WriteOutcome` the caller records on the main actor. Static so
     /// the detached closure captures only Sendable values (never `self`); the
     /// enclosing await hop is trivial while the blocking write and sleeps run in
-    /// the detached task. The setFrame-vs-setSize choice, and `WindowMutator`'s
+    /// the detached task. The scope-to-write mapping, and `WindowMutator`'s
     /// internal setSize-last ordering, are unchanged - only the executor moved.
     private static func executeWrite(
         mutator: any WindowMutating,
         handle: WindowHandle,
         frame: CGRect,
-        restoresPosition: Bool) async -> WriteOutcome
+        scope: RestoreScope) async -> WriteOutcome
     {
         await Task.detached(priority: .userInitiated) { () -> WriteOutcome in
             do {
-                if restoresPosition {
+                switch scope {
+                case .sizeAndPosition:
                     try mutator.setFrame(handle, to: frame)
-                } else {
+                case .sizeOnly:
                     try mutator.setSize(handle, to: frame.size)
+                case .displayOnly:
+                    try mutator.setPosition(handle, to: frame.origin)
                 }
                 return .applied
             } catch let error as AXOperationError {
@@ -552,6 +562,26 @@ extension ActionCoordinator {
                 return .failed(error.localizedDescription)
             }
         }.value
+    }
+
+    /// Apply `clamp` only when the resolved target actually moves the window.
+    ///
+    /// A frame the window already occupies is by definition one macOS honours,
+    /// so clamping it can only introduce movement - which is exactly what a
+    /// `.displayOnly` rule promises not to do for a window already on its
+    /// target display. Without this, a window straddling a display seam with
+    /// its top edge above that display's menu bar gets pulled down on every
+    /// restore, and `.displayOnly` rules are exempt from moved-by-user
+    /// suppression, so it recurs every time the user drags it back.
+    ///
+    /// Shared by both write paths (`applyPlacement` here and
+    /// `AutoTriggerController.tryFulfil`) so the two can't drift apart.
+    static func clampingIfMoving(
+        _ resolved: CGRect,
+        from current: CGRect,
+        clamp: (CGRect) -> CGRect) -> CGRect
+    {
+        resolved.equalTo(current) ? resolved : clamp(resolved)
     }
 
     /// Clamp a resolved global-AX target to what macOS will actually honour on

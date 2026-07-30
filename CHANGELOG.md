@@ -9,6 +9,70 @@ Changelog; versions use SemVer.
 
 ## [Unreleased]
 
+### Added
+
+- `THIRD-PARTY-NOTICES.md` carrying the MIT notice for KeyboardShortcuts, the
+  one third-party dependency. `make bundle` copies it into
+  `Put.app/Contents/Resources` so the notice travels with the binary as MIT
+  requires, and the About window links to it under "Credits".
+- README gains an Install section pointing at Releases, so arrivals who aren't
+  building from source have a path, and an Acknowledgements section.
+
+## [0.2.2] - 2026-07-30
+
+### Added
+
+- `LICENSE`: GNU General Public License v3.0. Put is free to use and fork
+  anywhere, including commercially; redistribution has to carry the same licence
+  with its source and keep the copyright notice, so it can't be rebranded as
+  closed-source software. The About window links to the licence.
+- CLAUDE.md records the Mission Control Spaces boundary: AX geometry writes to a
+  window on a non-active Space report success without applying, cross-Space moves
+  and Space create/destroy are unreachable with SIP enabled, and a display absent
+  over wake or hotplug has its windows evacuated to primary with the secondary
+  Spaces collapsed.
+
+### Changed
+
+- Release credentials now resolve from the `put-release` Keychain service only;
+  the fallback to a second project's `undertone-release` service is gone.
+  `make setup-release-keychain` refuses to run without a tty and rejects empty
+  input, so it can no longer silently overwrite working credentials with blanks
+  when `read` hits EOF.
+
+### Removed
+
+- The internal code-review documents under `docs/`. Every finding they tracked
+  has since been fixed in `main`, so they only recorded stale state.
+- Tracked agent scratch state (`.claude/agent-memory/`), now gitignored along
+  with `.impeccable/`.
+
+## [0.2.1] - 2026-07-29
+
+### Added
+
+- Display-only rules. A rule can now restore which display its window is on
+  without touching size or position, chosen from a new "Restore" picker in
+  Settings → Rules → Saved placement (size and position / size only / display
+  only). A display-only rule moves the window at its current size, mapping its
+  centre proportionally from the display it came from - so a window filling a
+  laptop screen lands centred on a larger external one rather than stranded in
+  a corner - and nudging it inwards if it would hang off the edge of a smaller
+  screen. A window already on the target display is left exactly as it is, so
+  repeated auto triggers can't creep it around, and a window Put can't locate on
+  any connected display is left alone rather than resized. Written for apps like
+  VS Code that open on the wrong screen but whose window size shouldn't be
+  overwritten.
+
+### Changed
+
+- `Rule.restoresPosition` is superseded by `Rule.restoreScope`. Existing configs
+  decode unchanged (`restoresPosition: false` becomes `.sizeOnly`), and the old
+  key is still written so a config round-tripping through an older build
+  degrades to size-only rather than re-asserting a cleared position.
+- The Rules tab's "Clear position" / "Set position" buttons are replaced by the
+  three-way Restore picker.
+
 ## [0.2.0] - 2026-07-28
 
 ### Added

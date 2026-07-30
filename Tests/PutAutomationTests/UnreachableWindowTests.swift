@@ -31,7 +31,7 @@ struct UnreachableWindowTests {
         bundleID: String,
         label: String = "",
         isEnabled: Bool = true,
-        restoresPosition: Bool = true) -> Rule
+        restoreScope: RestoreScope = .sizeAndPosition) -> Rule
     {
         Rule(
             descriptiveLabel: label,
@@ -51,7 +51,7 @@ struct UnreachableWindowTests {
                 absolute: CGRect(x: 0, y: 0, width: 400, height: 300),
                 normalised: UnitRect(x: 0, y: 0, width: 0.3, height: 0.3)),
             isEnabled: isEnabled,
-            restoresPosition: restoresPosition)
+            restoreScope: restoreScope)
     }
 
     private func layout(_ rules: [Rule]) -> Layout {
@@ -111,13 +111,25 @@ struct UnreachableWindowTests {
     @Test("Disabled or size-only rules are not flagged")
     func disabledAndSizeOnlyIgnored() {
         let disabled = rule(bundleID: "com.apple.iCal", isEnabled: false)
-        let sizeOnly = rule(bundleID: "com.apple.Music", restoresPosition: false)
+        let sizeOnly = rule(bundleID: "com.apple.Music", restoreScope: .sizeOnly)
         let result = ActionCoordinator.unreachableRules(
             in: layout([disabled, sizeOnly]),
             snapshot: [],
             runningBundleIDs: ["com.apple.iCal", "com.apple.Music"],
             offSpaceBundleIDs: ["com.apple.iCal", "com.apple.Music"])
         #expect(result.isEmpty)
+    }
+
+    @Test("Display-only rules are flagged: they still move the window")
+    func displayOnlyFlagged() {
+        let subject = rule(bundleID: "com.apple.Music", restoreScope: .displayOnly)
+        let result = ActionCoordinator.unreachableRules(
+            in: layout([subject]),
+            snapshot: [],
+            runningBundleIDs: ["com.apple.Music"],
+            offSpaceBundleIDs: ["com.apple.Music"])
+        #expect(result.count == 1)
+        #expect(result.first?.ruleID == subject.id)
     }
 
     @Test("Two rules for the same app collapse to one entry")

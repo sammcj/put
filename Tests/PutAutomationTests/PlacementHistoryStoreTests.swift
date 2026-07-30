@@ -18,14 +18,14 @@ struct PlacementHistoryStoreTests {
             globalOrigin: .zero)
     }
 
-    private func makeRule(restoresPosition: Bool = true) -> Rule {
+    private func makeRule(restoreScope: RestoreScope = .sizeAndPosition) -> Rule {
         Rule(
             matchCriteria: MatchCriteria(bundleID: "com.example.one"),
             targetDisplay: wideDisplay(),
             frame: WindowFrame(
                 absolute: CGRect(x: 0, y: 0, width: 100, height: 100),
                 normalised: UnitRect(x: 0, y: 0, width: 0.1, height: 0.1)),
-            restoresPosition: restoresPosition)
+            restoreScope: restoreScope)
     }
 
     private func handle(at frame: CGRect) -> WindowHandle {
@@ -102,7 +102,27 @@ struct PlacementHistoryStoreTests {
     @Test
     func sizeOnlyRuleNeverSuppresses() {
         let store = PlacementHistoryStore()
-        let rule = makeRule(restoresPosition: false)
+        let rule = makeRule(restoreScope: .sizeOnly)
+        let window = handle(at: movedAway)
+        store.record(handle: window, rule: rule, frame: target)
+
+        let suppressed = store.shouldSuppressAutoReplay(
+            rule: rule,
+            handle: window,
+            targetFrame: target,
+            targetDisplay: wideDisplay(),
+            source: .auto)
+        #expect(suppressed == false)
+    }
+
+    @Test
+    func displayOnlyRuleNeverSuppresses() {
+        // Display-only targets are recomputed from the window's current frame,
+        // so they can never match a recorded target after a user move - and
+        // they resolve to a no-op when the window is already on the right
+        // display. Suppression would only ever block a legitimate correction.
+        let store = PlacementHistoryStore()
+        let rule = makeRule(restoreScope: .displayOnly)
         let window = handle(at: movedAway)
         store.record(handle: window, rule: rule, frame: target)
 

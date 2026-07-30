@@ -32,10 +32,12 @@ struct RuleFramePreview: View {
             for display in scene.displays {
                 draw(display: display, in: transform(display.rect), context: context)
             }
-            drawWindow(
-                rect: transform(scene.windowGlobalRect),
-                targetConnected: scene.targetConnected,
-                context: context)
+            if let windowRect = scene.windowGlobalRect {
+                drawWindow(
+                    rect: transform(windowRect),
+                    targetConnected: scene.targetConnected,
+                    context: context)
+            }
         }
     }
 
@@ -51,7 +53,9 @@ struct RuleFramePreview: View {
 
     private struct Scene {
         let displays: [DisplayEntry]
-        let windowGlobalRect: CGRect
+        /// nil for a display-only rule, which asserts no rect - the highlighted
+        /// target display is the whole of what it says.
+        let windowGlobalRect: CGRect?
         let targetConnected: Bool
     }
 
@@ -81,7 +85,7 @@ struct RuleFramePreview: View {
                 isConnected: false))
         }
 
-        let globalWindow = CGRect(
+        let globalWindow: CGRect? = rule.restoreScope == .displayOnly ? nil : CGRect(
             x: resolvedTarget.globalOrigin.x + rule.frame.absolute.origin.x,
             y: resolvedTarget.globalOrigin.y + rule.frame.absolute.origin.y,
             width: rule.frame.absolute.size.width,

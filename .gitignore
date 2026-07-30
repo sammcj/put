@@ -12,3 +12,7 @@ Package.resolved.tmp
 
 # graphify knowledge graph (generated, machine-specific, rebuildable)
 graphify-out/
+
+# agent scratch state, not project source
+.claude/agent-memory/
+.impeccable/

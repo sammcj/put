@@ -21,6 +21,7 @@ struct RulePlacementForm: View {
 
     private var savedPlacementBox: some View {
         GroupBox("Saved placement") {
+            scopePicker
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow {
                     Text("Display")
@@ -34,7 +35,7 @@ struct RulePlacementForm: View {
                     .gridCellColumns(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if rule.restoresPosition {
+                if rule.restoreScope == .sizeAndPosition {
                     GridRow {
                         Text("X").foregroundStyle(.secondary)
                         TextField("", value: frameBinding(\.origin.x), format: .number)
@@ -42,21 +43,51 @@ struct RulePlacementForm: View {
                         TextField("", value: frameBinding(\.origin.y), format: .number)
                     }
                 }
-                GridRow {
-                    Text("Width").foregroundStyle(.secondary)
-                    TextField("", value: frameBinding(\.size.width), format: .number)
-                    Text("Height").foregroundStyle(.secondary)
-                    TextField("", value: frameBinding(\.size.height), format: .number)
+                if rule.restoreScope.restoresSize {
+                    GridRow {
+                        Text("Width").foregroundStyle(.secondary)
+                        TextField("", value: frameBinding(\.size.width), format: .number)
+                        Text("Height").foregroundStyle(.secondary)
+                        TextField("", value: frameBinding(\.size.height), format: .number)
+                    }
                 }
             }
             .textFieldStyle(.roundedBorder)
             .padding(.vertical, 4)
-            positionToggleRow
-            Text(placementCaption)
+            Text(Self.placementCaption(for: rule.restoreScope))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.top, 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Which parts of the saved frame this rule re-asserts. The frame itself is
+    /// always kept in full, so narrowing the scope and widening it again later
+    /// doesn't lose the saved coordinates.
+    private var scopePicker: some View {
+        Picker("Restore", selection: $rule.restoreScope) {
+            Text("Size and position").tag(RestoreScope.sizeAndPosition)
+            Text("Size only").tag(RestoreScope.sizeOnly)
+            Text("Display only").tag(RestoreScope.displayOnly)
+        }
+        .pickerStyle(.radioGroup)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 4)
+    }
+
+    /// Explains what the chosen scope does at restore time.
+    static func placementCaption(for scope: RestoreScope) -> String {
+        switch scope {
+        case .sizeAndPosition:
+            "Coordinates are in points, relative to the saved display's top-left."
+        case .sizeOnly:
+            "Width and height are in points. Position is left as-is at restore time."
+        case .displayOnly:
+            "The window is moved to this display at its current size, keeping "
+                + "roughly where it sat on the display it came from - centred if it "
+                + "filled that display. Nothing is resized, and a window already on "
+                + "this display is left alone."
         }
     }
 
@@ -73,35 +104,6 @@ struct RulePlacementForm: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// Toggle between "restore size and position" (default) and "restore size
-    /// only". Clearing position retains the saved X/Y in the model so the user
-    /// can re-enable later without losing the original coordinates.
-    private var positionToggleRow: some View {
-        HStack {
-            if rule.restoresPosition {
-                Spacer()
-                Button("Clear position") { rule.restoresPosition = false }
-                    .help(
-                        "Restore size only. The window keeps its current "
-                            + "position whenever this rule is applied.")
-            } else {
-                Text("Position not saved - the window keeps its current position.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Set position") { rule.restoresPosition = true }
-                    .help("Resume restoring the saved X/Y coordinates.")
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    private var placementCaption: String {
-        rule.restoresPosition
-            ? "Coordinates are in points, relative to the saved display's top-left."
-            : "Width and height are in points. Position is left as-is at restore time."
     }
 
     /// Picker options: every connected display plus the rule's saved target

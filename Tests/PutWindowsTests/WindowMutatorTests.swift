@@ -187,4 +187,31 @@ struct WindowMutatorTests {
             target: CGSize(width: 800, height: 600),
             actual: CGSize(width: 820, height: 600)))
     }
+
+    // MARK: - originMatches
+
+    @Test
+    func originMatchesAcceptsExact() {
+        #expect(WindowMutator.originMatches(
+            target: CGPoint(x: 1920, y: 100),
+            actual: CGPoint(x: 1920, y: 100)))
+    }
+
+    @Test
+    func originMatchesToleratesSubPointDrift() {
+        // Same 2-point tolerance as frameMatches, on both axes.
+        #expect(WindowMutator.originMatches(
+            target: CGPoint(x: 1920, y: 100),
+            actual: CGPoint(x: 1921, y: 99)))
+    }
+
+    @Test
+    func originMatchesRejectsLargeDeltaOnEitherAxis() {
+        #expect(!WindowMutator.originMatches(
+            target: CGPoint(x: 1920, y: 100),
+            actual: CGPoint(x: 1950, y: 100)))
+        #expect(!WindowMutator.originMatches(
+            target: CGPoint(x: 1920, y: 100),
+            actual: CGPoint(x: 1920, y: 140)))
+    }
 }

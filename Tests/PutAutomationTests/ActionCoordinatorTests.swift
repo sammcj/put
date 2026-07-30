@@ -4,6 +4,7 @@ import CoreGraphics
 import Foundation
 @testable import PutAutomation
 @testable import PutCore
+@testable import PutDisplay
 @testable import PutStorage
 import PutTestSupport
 @testable import PutWindows
@@ -102,12 +103,12 @@ struct ActionCoordinatorTests {
     }
 
     @Test
-    func saveSizeOnlyStampsRestoresPositionFalse() async throws {
-        // A size-only save (restoresPosition: false) must create rules that
-        // restore size but not position. A rule only lands when the test host
-        // has a usable display, so gate the assertion the way the save-flash
-        // test does. A default save is the control: same window, same layout,
-        // but restoresPosition stays true.
+    func saveSizeOnlyStampsSizeOnlyScope() async throws {
+        // A size-only save must create rules that restore size but not
+        // position. A rule only lands when the test host has a usable display,
+        // so gate the assertion the way the save-flash test does. A default
+        // save is the control: same window, same layout, but the scope stays
+        // .sizeAndPosition.
         let frame = CGRect(x: 100, y: 100, width: 400, height: 300)
 
         let defaultState = makeState()
@@ -128,12 +129,12 @@ struct ActionCoordinatorTests {
             probe: StubWindowProbe(handles: [makeHandle(frame: frame)]),
             mutator: RecordingWindowMutator(),
             trusted: true)
-        await sizeOnlyCoordinator.saveAllWindows(restoresPosition: false)
+        await sizeOnlyCoordinator.saveAllWindows(restoreScope: .sizeOnly)
 
         if let defaultRule = defaultState.activeLayout?.rules.first {
-            #expect(defaultRule.restoresPosition == true)
+            #expect(defaultRule.restoreScope == .sizeAndPosition)
             let sizeOnlyRule = try #require(sizeOnlyState.activeLayout?.rules.first)
-            #expect(sizeOnlyRule.restoresPosition == false)
+            #expect(sizeOnlyRule.restoreScope == .sizeOnly)
         }
     }
 
@@ -155,12 +156,40 @@ struct ActionCoordinatorTests {
         guard let seeded = state.activeLayout?.rules.first else {
             return // headless host: no rule landed, nothing to re-save
         }
-        #expect(seeded.restoresPosition == true)
+        #expect(seeded.restoreScope == .sizeAndPosition)
 
-        await coordinator.saveFocusedWindowAllApp(restoresPosition: false)
+        await coordinator.saveFocusedWindowAllApp(restoreScope: .sizeOnly)
         let rules = try #require(state.activeLayout?.rules)
         #expect(rules.count == 1)
-        #expect(rules.first?.restoresPosition == false)
+        #expect(rules.first?.restoreScope == .sizeOnly)
+    }
+
+    @Test
+    func plainResaveKeepsAnExistingDisplayOnlyScope() async throws {
+        // The ordinary Save hotkey passes no scope, which must preserve the
+        // rule's existing choice while still refreshing its frame. Without
+        // that, saving any window silently reverts a display-only rule to a
+        // full size-and-position restore.
+        let frame = CGRect(x: 100, y: 100, width: 400, height: 300)
+        let state = makeState()
+        let store = try makeStore()
+        let coordinator = makeCoordinator(
+            state: state,
+            store: store,
+            probe: StubWindowProbe(handles: [makeHandle(frame: frame)]),
+            mutator: RecordingWindowMutator(),
+            trusted: true)
+
+        await coordinator.saveFocusedWindowAllApp(restoreScope: .displayOnly)
+        guard state.activeLayout?.rules.first != nil else {
+            return // headless host: no rule landed, nothing to re-save
+        }
+
+        await coordinator.saveFocusedWindowAllApp()
+        let rules = try #require(state.activeLayout?.rules)
+        #expect(rules.count == 1)
+        #expect(rules.first?.restoreScope == .displayOnly)
+        #expect(rules.first?.frame.absolute.size == frame.size)
     }
 
     @Test
@@ -339,7 +368,7 @@ struct ActionCoordinatorSizeOnlyTests {
 
     @Test
     func sizeOnlyRuleRoutesToSetSize() async throws {
-        // Rule with restoresPosition=false must route through mutator.setSize
+        // A size-only rule must route through mutator.setSize
         // and never call mutator.setFrame. The setSize side only fires when
         // the test host has at least one connected display, so guard with an
         // existence check the way the main suite does.
@@ -347,7 +376,7 @@ struct ActionCoordinatorSizeOnlyTests {
             matchCriteria: MatchCriteria(bundleID: "com.example.one", applyToAllWindows: true),
             targetDisplay: fingerprint(),
             frame: dummyFrame(),
-            restoresPosition: false)
+            restoreScope: .sizeOnly)
         let layout = Layout(id: UUID(), name: "L", rules: [rule])
         let state = AppState(config: Config(layouts: [layout], activeLayoutID: layout.id))
         let store = try makeStore()
@@ -393,6 +422,84 @@ struct ActionCoordinatorSizeOnlyTests {
         if !mutator.frameCalls.isEmpty {
             #expect(mutator.frameCalls.count == 1)
         }
+    }
+
+    @Test
+    func displayOnlyRuleRoutesToSetPosition() async throws {
+        // A display-only rule must move the window and never write its size, so
+        // neither setFrame nor setSize may be called. Targeting the host's own
+        // primary display also exercises the no-op guarantee: the window is
+        // already there, so the origin written back must be its own, not the
+        // rule's saved one. Skipped on a headless host, where there is no
+        // display to target and nothing is written.
+        guard let primary = try? DisplayProbe.snapshot().first(where: { $0.isPrimary }) else { return }
+        let rule = Rule(
+            matchCriteria: MatchCriteria(bundleID: "com.example.one", applyToAllWindows: true),
+            targetDisplay: primary,
+            frame: dummyFrame(),
+            restoreScope: .displayOnly)
+        let layout = Layout(id: UUID(), name: "L", rules: [rule])
+        let state = AppState(config: Config(layouts: [layout], activeLayoutID: layout.id))
+        let store = try makeStore()
+        let handle = makeHandle()
+        let mutator = RecordingWindowMutator()
+        let coordinator = ActionCoordinator(
+            state: state,
+            store: store,
+            probe: StubWindowProbe(handles: [handle]),
+            mutator: mutator,
+            gate: StubAccessibilityGate())
+
+        await coordinator.restore(windowsForUI: [handle])
+
+        #expect(mutator.frameCalls.isEmpty)
+        #expect(mutator.sizeCalls.isEmpty)
+        #expect(mutator.positionCalls.count == 1)
+        let (written, origin) = try #require(mutator.positionCalls.first)
+        #expect(written.descriptor.bundleID == "com.example.one")
+        // The window is already on the display the rule resolves onto, so
+        // display-only must write back the window's own origin rather than the
+        // rule's saved one.
+        #expect(origin == handle.descriptor.frame.origin)
+    }
+
+    @Test
+    func displayOnlyDoesNotClampAWindowAlreadyOnItsTargetDisplay() async throws {
+        // The menu-bar clamp must not fire for a frame the window already
+        // occupies. macOS honours a window's own position by definition, so
+        // clamping it can only introduce movement - and because display-only
+        // rules are exempt from moved-by-user suppression, that movement would
+        // repeat on every wake, reconnect and launch.
+        guard let primary = try? DisplayProbe.snapshot().first(where: { $0.isPrimary }),
+              let visibleTop = DisplayProbe.visibleTopY(for: primary), visibleTop > 0
+        else { return }
+        // Above the menu-bar line: the clamp would push this down to visibleTop.
+        let aboveMenuBar = CGRect(
+            x: primary.globalOrigin.x + 100,
+            y: primary.globalOrigin.y,
+            width: 600,
+            height: 400)
+        let handle = makeWindowHandle(bundleID: "com.example.one", frame: aboveMenuBar)
+        let rule = Rule(
+            matchCriteria: MatchCriteria(bundleID: "com.example.one", applyToAllWindows: true),
+            targetDisplay: primary,
+            frame: dummyFrame(),
+            restoreScope: .displayOnly)
+        let layout = Layout(id: UUID(), name: "L", rules: [rule])
+        let state = AppState(config: Config(layouts: [layout], activeLayoutID: layout.id))
+        let store = try makeStore()
+        let mutator = RecordingWindowMutator()
+        let coordinator = ActionCoordinator(
+            state: state,
+            store: store,
+            probe: StubWindowProbe(handles: [handle]),
+            mutator: mutator,
+            gate: StubAccessibilityGate())
+
+        await coordinator.restore(windowsForUI: [handle])
+
+        #expect(mutator.positionCalls.count == 1)
+        #expect(mutator.positionCalls.first?.1 == aboveMenuBar.origin)
     }
 
     @Test

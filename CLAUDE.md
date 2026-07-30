@@ -4,7 +4,7 @@ Native macOS 26+ menu bar utility that remembers and restores window positions a
 
 ## Architecture
 
-Nine targets in the local Swift Package (eight libraries plus the `Put` executable):
+Ten targets in the local Swift Package (eight libraries, the `Put` executable, and `PutSpaceProbe`, a dev-only diagnostic executable that is not part of the shipped app):
 
 - `PutCore`: pure `Codable` models and the `putSchemaVersion` constant. Platform-agnostic; also hosts `PutLog` (which wraps `os.Logger`) since every module needs logging and Core is the single universal dependency.
 - `PutStorage`: actor-isolated `ConfigStore` for `~/Library/Application Support/Put/config.json` and a `FileLog` actor that writes NDJSON to `~/Library/Logs/Put/put.log`.
@@ -42,6 +42,16 @@ Three spaces, converted only in `PutPlacement.Coordinates`:
 
 Display identity resolves via `DisplayMatcher` chain: UUID → vendor+product+serial → closest point size → primary. Returned `DisplayMatchQuality` is comparable; quality `<= .equivalent` means "found the target", anything else means "missing, apply `MissingDisplayPolicy`".
 
+## Restore scope
+
+`Rule.restoreScope` selects which AX write a restore performs: `.sizeAndPosition` → `setFrame`, `.sizeOnly` → `setSize`, `.displayOnly` → `setPosition`. Every write path must switch on all three - `ActionCoordinator.executeWrite` and `AutoTriggerController.write` are the two.
+
+`.displayOnly` is why `PlacementEngine.resolve` takes a `currentFrame`: its target is derived from where the window currently sits (size preserved, the window's *centre* mapped proportionally onto the target display via `Coordinates.moving`), not from the saved frame. Queued-rule fulfilment resolves per window for the same reason - two windows of one app can land in different places.
+
+A `.displayOnly` rule must resolve to the window's exact current frame when it's already on the target display. `PlacementHistoryStore.shouldSuppressAutoReplay` skips moved-by-user suppression for `.displayOnly` on that basis, so any nudge repeats on every wake and display event. Two places enforce it: `Coordinates.moving` returns its input unchanged for a same-display move, ahead of the clamp that keeps a cross-display move on screen, and both write paths run the menu-bar clamp through `ActionCoordinator.clampingIfMoving`, which skips it when the resolved frame equals the current one.
+
+A `.displayOnly` rule never resizes, so when there's no usable current frame (none passed, non-finite, or the window overlaps no display) the engine returns `.skipped` rather than falling back to the saved frame. Note `Coordinates.displayContaining` answers the save-time question and falls back to primary for a frame overlapping nothing; `displayOnlyFrame` rejects that fallback explicitly.
+
 ## Rule matching semantics
 
 In `RuleMatcher.matches(rule, against:)`:
@@ -56,6 +66,8 @@ Invalid regex patterns fail closed (no match). Keep it that way - fail-open woul
 ## Config and persistence
 
 `Config` is schema-versioned via `putSchemaVersion`. `ConfigStore` migration stub stamps older versions forward; future incompatible changes bump the int and add a real migration branch. Reads and writes are atomic (tmp + replace); writes force 0600 perms on both file and parent directory.
+
+`Rule` hand-rolls `Codable` so `restoreScope` can fall back to the superseded `restoresPosition` bool on read, and still writes that bool on encode so a config opened by an older build degrades to size-only instead of re-asserting a position the user cleared. Keep the dual write when touching the scope.
 
 `KeyboardShortcuts` stores chosen bindings in `UserDefaults` keyed by `Name.rawValue`. Per-layout activation shortcuts use `KeyboardShortcuts.Name("layout.<uuid>")` so they survive restarts as long as the `Layout.id` does. `LayoutHotkeys.syncRegistrations` is called on launch and polled every 2 seconds from `AppDelegate.observeLayoutChanges` to catch layout add/remove.
 
@@ -95,9 +107,16 @@ When debugging window placement, the three surfaces in order of usefulness:
 
 **AX enumeration blocks on XPC.** `WindowProbe.snapshot()` and friends synchronously round-trip to every foreground app's Accessibility server. The `ActionCoordinator` dispatches all AX reads via `Task.detached(priority: .userInitiated)` and only re-enters `@MainActor` for state mutation. Keep this pattern when adding new AX-driven operations.
 
-**No App Store target.** Cross-process `AXUIElement` is incompatible with sandboxing. Distribution path is Developer ID + notarisation (`make notarise`, gated on `DEVELOPER_ID_APPLICATION`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_ID_PASSWORD`). Do not add sandbox entitlements "just in case".
+**No App Store target.** Cross-process `AXUIElement` is incompatible with sandboxing, and GPL-3.0 is incompatible with the App Store's distribution terms, so this is settled twice over. Distribution path is Developer ID + notarisation (`make notarise`, gated on `DEVELOPER_ID_APPLICATION`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_ID_PASSWORD`). Do not add sandbox entitlements "just in case".
 
 **`WindowMutator.applyOnce` must end with `setSize` in both branches.** Firefox (and likely other Gecko apps) silently revert the size when a position write immediately follows it - AX returns `.success`, but the size never lands. The growing branch keeps a trailing position pin to catch size-induced origin drift, then re-commits size last; the shrinking branch already ends with size. Symptom of a regression: window jumps to target then snaps back, with `Window drifted attempts=2` in the log because the early-bail sees identical actuals across attempts.
+
+**Mission Control Spaces are a hard boundary.** Put has to work with SIP enabled, which fixes what is reachable:
+
+- An AX geometry write to a window on a non-active Space returns `kAXErrorSuccess` but does not apply until that Space is activated, and never migrates the window between Spaces. Read-back verification is meaningless there, so only trust write outcomes for windows on the active Space of their display.
+- Moving windows across Spaces, and creating or destroying Spaces, needs the window-server main connection (owned by Dock) reached via scripting-addition injection that SIP blocks. This is permanently out of scope, not a deferred feature - yabai requires SIP off for exactly these calls.
+- Reading Space topology is SIP-safe via private SkyLight `CGSCopyManagedDisplaySpaces(SLSMainConnectionID())`, as shipped by notarised apps like WhichSpace. Parse defensively; the undocumented keys shift between point releases.
+- While an external display is absent (wake or hotplug), macOS evacuates its windows to the primary display's Space and collapses the secondary Spaces. Never key a restore on Space index; re-derive topology after `CGDisplayRegisterReconfigurationCallback` settles and treat "display reappeared" as a re-place trigger.
 
 ---
 

@@ -279,17 +279,17 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc
     private func handleSaveFocusedAllAppSizeOnly() {
-        Task { await coordinator.saveFocusedWindowAllApp(restoresPosition: false) }
+        Task { await coordinator.saveFocusedWindowAllApp(restoreScope: .sizeOnly) }
     }
 
     @objc
     private func handleSaveFocusedTitleOnlySizeOnly() {
-        Task { await coordinator.saveFocusedWindowTitleOnly(restoresPosition: false) }
+        Task { await coordinator.saveFocusedWindowTitleOnly(restoreScope: .sizeOnly) }
     }
 
     @objc
     private func handleSaveAllSizeOnly() {
-        Task { await coordinator.saveAllWindows(restoresPosition: false) }
+        Task { await coordinator.saveAllWindows(restoreScope: .sizeOnly) }
     }
 
     @objc
@@ -311,7 +311,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         guard let bundleID = sender.representedObject as? String, !bundleID.isEmpty else { return }
         Task { @MainActor in
             let handles = WindowProbe.windows(forBundleID: bundleID)
-            await coordinator.save(windowsForUI: handles, restoresPosition: false)
+            await coordinator.save(windowsForUI: handles, restoreScope: .sizeOnly)
         }
     }
 

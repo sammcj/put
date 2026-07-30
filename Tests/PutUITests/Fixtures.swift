@@ -16,7 +16,7 @@ func makeRule(
     axRole: String? = nil,
     applyToAllWindows: Bool = false,
     isEnabled: Bool = true,
-    restoresPosition: Bool = true,
+    restoreScope: RestoreScope = .sizeAndPosition,
     missingDisplayPolicy: MissingDisplayPolicy = .primaryProportional,
     targetDisplay: DisplayFingerprint = makeDisplayFingerprint(),
     absolute: CGRect = CGRect(x: 0, y: 0, width: 800, height: 600),
@@ -36,5 +36,5 @@ func makeRule(
         frame: WindowFrame(absolute: absolute, normalised: normalised),
         missingDisplayPolicy: missingDisplayPolicy,
         isEnabled: isEnabled,
-        restoresPosition: restoresPosition)
+        restoreScope: restoreScope)
 }

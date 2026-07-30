@@ -47,6 +47,10 @@ struct ActionCoordinatorThreadingTests {
             record("setSize")
         }
 
+        func setPosition(_: WindowHandle, to _: CGPoint) throws {
+            record("setPosition")
+        }
+
         func raise(_: WindowHandle) {}
 
         private func record(_ kind: String) {
@@ -79,12 +83,12 @@ struct ActionCoordinatorThreadingTests {
             normalised: UnitRect(x: 0, y: 0, width: 0.1, height: 0.1))
     }
 
-    private func rule(bundleID: String, restoresPosition: Bool) -> Rule {
+    private func rule(bundleID: String, restoreScope: RestoreScope) -> Rule {
         Rule(
             matchCriteria: MatchCriteria(bundleID: bundleID, applyToAllWindows: true),
             targetDisplay: absentDisplay(),
             frame: dummyFrame(),
-            restoresPosition: restoresPosition)
+            restoreScope: restoreScope)
     }
 
     @Test(.disabled(if: !hasActiveDisplays, "requires at least one active display"))
@@ -93,8 +97,8 @@ struct ActionCoordinatorThreadingTests {
         // rule (routes to setSize). Restore visits them in array order, so the
         // recorded kinds must stay [setFrame, setSize] and both must run off the
         // main thread.
-        let ruleA = rule(bundleID: "com.example.aaa", restoresPosition: true)
-        let ruleB = rule(bundleID: "com.example.bbb", restoresPosition: false)
+        let ruleA = rule(bundleID: "com.example.aaa", restoreScope: .sizeAndPosition)
+        let ruleB = rule(bundleID: "com.example.bbb", restoreScope: .sizeOnly)
         let layout = Layout(id: UUID(), name: "L", rules: [ruleA, ruleB])
         let state = AppState(config: Config(layouts: [layout], activeLayoutID: layout.id))
         let store = try makeTempStore(prefix: "put-threading").store
