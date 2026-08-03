@@ -344,6 +344,14 @@ public final class AutoTriggerController {
             // Rule was deleted; drop from queue.
             return true
         }
+        // Fulfilment fires on a display change, so it's an automatic placement
+        // whatever queued it. Drop an opted-out rule from the queue rather than
+        // holding it: this path can never apply it, and an explicit restore
+        // re-queues it if its display is still absent.
+        guard rule.applies(to: .auto) else {
+            log.debug("Queued rule \(ruleID.uuidString, privacy: .public) opted out of automatic placement")
+            return true
+        }
         let match = DisplayMatcher.resolve(target: rule.targetDisplay, among: displays)
         guard let match, match.quality <= .equivalent else { return false }
 
@@ -378,7 +386,7 @@ public final class AutoTriggerController {
         }
         guard !targets.isEmpty else { return false }
 
-        let failures = await Self.write(targets, scope: rule.restoreScope, using: mutator)
+        let failures = await Self.write(targets, as: rule.restoreComponents.write, using: mutator)
         if failures > 0 {
             log.warning(
                 """
@@ -390,27 +398,33 @@ public final class AutoTriggerController {
         return true
     }
 
-    /// Apply each resolved target off the main actor, honouring the rule's
-    /// restore scope: a size-only rule must not have its position rewritten on
-    /// reconnect, and a display-only rule must not be resized. Routes through
-    /// the injected mutator seam and returns the failure count rather than
-    /// swallowing errors with `try?`.
+    /// Apply each resolved target off the main actor, performing the one write
+    /// the rule's components call for: a rule that only forces a size must not
+    /// have its position rewritten on reconnect, and one that only moves the
+    /// window must not be resized. `RestoreComponents.write` picks that for both
+    /// this path and `ActionCoordinator.executeWrite` so the two can't drift.
+    /// Routes through the injected mutator seam and returns the failure count
+    /// rather than swallowing errors with `try?`.
     private static func write(
         _ targets: [(handle: WindowHandle, frame: CGRect)],
-        scope: RestoreScope,
+        as kind: RestoreWrite,
         using mutator: any WindowMutating) async -> Int
     {
         await Task.detached(priority: .userInitiated) { () -> Int in
             var failed = 0
             for target in targets {
                 do {
-                    switch scope {
-                    case .sizeAndPosition:
+                    switch kind {
+                    case .frame:
                         try mutator.setFrame(target.handle, to: target.frame)
-                    case .sizeOnly:
+                    case .size:
                         try mutator.setSize(target.handle, to: target.frame.size)
-                    case .displayOnly:
+                    case .position:
                         try mutator.setPosition(target.handle, to: target.frame.origin)
+                    case .nothing:
+                        // Unreachable: the engine skips a rule with no
+                        // components before it ever resolves a frame.
+                        break
                     }
                 } catch {
                     failed += 1
@@ -430,11 +444,16 @@ extension AutoTriggerController {
     func onAppLaunched(bundleID: String?) {
         guard state.config.autoTriggers.onAppLaunch else { return }
         guard let bundleID, !bundleID.isEmpty else { return }
-        // Skip the restore pass if no rule targets this app. Previously we
+        // Skip the restore pass if no rule would place this app. Previously we
         // fired a restore for every launching app, which filled the log with
         // applied=0 Restore summaries for Finder, Safari, Terminal, etc. and
-        // made it hard to spot genuine rule-matching failures.
-        guard state.activeLayout?.rules.contains(where: { $0.matchCriteria.bundleID == bundleID }) == true else {
+        // made it hard to spot genuine rule-matching failures. A disabled rule,
+        // or one opted out of automatic placement, is the same story: without
+        // this the retry loop sleeps and snapshots its way through the full
+        // backoff for a pass that can only ever report no-match.
+        guard state.activeLayout?.rules.contains(where: {
+            $0.matchCriteria.bundleID == bundleID && $0.isEnabled && $0.autoPlace
+        }) == true else {
             return
         }
         log.info("App launched: \(bundleID, privacy: .public); scheduling restore")

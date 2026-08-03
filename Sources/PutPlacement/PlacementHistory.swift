@@ -31,6 +31,20 @@ import PutCore
 /// For the trigger timing that *does* still use clocks (debounce, wake/launch
 /// retries) see `RestoreTiming` in PutAutomation.
 public enum PlacementHistory {
+    /// Which parts of a recorded placement a replay check compares.
+    ///
+    /// A rule only gets to suppress on what it actually asserts. Comparing a
+    /// component the rule leaves alone is worse than useless: the window's size
+    /// under a position-only rule is whatever the user last made it, so a whole
+    /// frame comparison reports every user resize as a target mismatch and
+    /// switches suppression off entirely - the opposite of what it's for.
+    public enum FrameComparison: Sendable {
+        /// Origin and size, for a rule restoring both.
+        case wholeFrame
+        /// Origin only, for a rule restoring a position but not a size.
+        case originOnly
+    }
+
     /// Frozen record of a successful placement: which rule produced it,
     /// where it was put, and when. `placedAt` is kept for diagnostics and
     /// logging only; it no longer gates suppression.
@@ -64,13 +78,13 @@ public enum PlacementHistory {
     /// - `record.ruleID` matches the rule about to be applied,
     /// - `record.targetFrame` matches the target frame about to be applied
     ///   (so a target shift, e.g. layout edit or display change, still gets
-    ///   to write),
+    ///   to write), compared over the components in `comparing`,
     /// - the window's current frame still sits on its target display (a
     ///   window the system shuffled onto a *different* display - e.g. a
     ///   display power-cycle reflow - is not a user move, so we let the
     ///   restore put it back),
     /// - the window's current frame is more than `driftThreshold` points from
-    ///   that recorded target on either origin axis or either dimension.
+    ///   that recorded target, again over the components in `comparing`.
     ///
     /// There is deliberately no time component; see the type doc for why.
     ///
@@ -84,15 +98,33 @@ public enum PlacementHistory {
         nextRuleID: UUID,
         nextTargetFrame: CGRect,
         targetDisplayBounds: CGRect? = nil,
+        comparing: FrameComparison = .wholeFrame,
         driftThreshold: CGFloat = defaultDriftThreshold) -> Bool
     {
         guard let record else { return false }
         guard record.ruleID == nextRuleID else { return false }
-        guard record.targetFrame.equalTo(nextTargetFrame) else { return false }
+        guard sameTarget(record.targetFrame, nextTargetFrame, comparing: comparing) else { return false }
         if let bounds = targetDisplayBounds, !movedWithinDisplay(bounds: bounds, current: currentFrame) {
             return false
         }
-        return movedBeyond(threshold: driftThreshold, target: nextTargetFrame, current: currentFrame)
+        return movedBeyond(
+            threshold: driftThreshold,
+            target: nextTargetFrame,
+            current: currentFrame,
+            comparing: comparing)
+    }
+
+    private static func sameTarget(
+        _ recorded: CGRect,
+        _ next: CGRect,
+        comparing: FrameComparison) -> Bool
+    {
+        switch comparing {
+        case .wholeFrame:
+            recorded.equalTo(next)
+        case .originOnly:
+            recorded.origin == next.origin
+        }
     }
 
     /// True when the window's centre still lies on its target display. macOS
@@ -104,11 +136,22 @@ public enum PlacementHistory {
     }
 
     /// True when `current` differs from `target` by more than `threshold` on
-    /// any of the four frame components (origin x/y, width, height).
-    private static func movedBeyond(threshold: CGFloat, target: CGRect, current: CGRect) -> Bool {
-        abs(current.minX - target.minX) > threshold
+    /// any compared frame component.
+    private static func movedBeyond(
+        threshold: CGFloat,
+        target: CGRect,
+        current: CGRect,
+        comparing: FrameComparison) -> Bool
+    {
+        let moved = abs(current.minX - target.minX) > threshold
             || abs(current.minY - target.minY) > threshold
-            || abs(current.width - target.width) > threshold
-            || abs(current.height - target.height) > threshold
+        switch comparing {
+        case .originOnly:
+            return moved
+        case .wholeFrame:
+            return moved
+                || abs(current.width - target.width) > threshold
+                || abs(current.height - target.height) > threshold
+        }
     }
 }

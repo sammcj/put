@@ -39,7 +39,7 @@ struct PlacementEngineDisplayOnlyTests {
         localFrame: CGRect,
         normalised: UnitRect? = nil,
         policy: MissingDisplayPolicy = .primaryProportional,
-        scope: RestoreScope = .sizeAndPosition,
+        scope: RestoreComponents = .sizeAndPosition,
         bundle: String = "com.apple.Safari") -> Rule
     {
         let unit = normalised ?? Coordinates.normalise(localFrame, onDisplay: display)
@@ -49,7 +49,7 @@ struct PlacementEngineDisplayOnlyTests {
             targetDisplay: display,
             frame: WindowFrame(absolute: localFrame, normalised: unit),
             missingDisplayPolicy: policy,
-            restoreScope: scope)
+            restoreComponents: scope)
     }
 
     // MARK: - Scenarios

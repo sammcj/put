@@ -53,8 +53,9 @@ struct RuleFramePreview: View {
 
     private struct Scene {
         let displays: [DisplayEntry]
-        /// nil for a display-only rule, which asserts no rect - the highlighted
-        /// target display is the whole of what it says.
+        /// nil unless the rule restores a saved position, which is the only
+        /// component that makes a drawn rect true. For the others the
+        /// highlighted target display is the whole of what the rule says.
         let windowGlobalRect: CGRect?
         let targetConnected: Bool
     }
@@ -85,7 +86,11 @@ struct RuleFramePreview: View {
                 isConnected: false))
         }
 
-        let globalWindow: CGRect? = rule.restoreScope == .displayOnly ? nil : CGRect(
+        // Only a restored position puts the window somewhere knowable. Drawing
+        // the saved rect for a rule that doesn't restore it would promise a
+        // placement that never happens - a size-only rule leaves the window
+        // where it stands, and a display rule derives its origin from there.
+        let globalWindow: CGRect? = !rule.restoreComponents.position ? nil : CGRect(
             x: resolvedTarget.globalOrigin.x + rule.frame.absolute.origin.x,
             y: resolvedTarget.globalOrigin.y + rule.frame.absolute.origin.y,
             width: rule.frame.absolute.size.width,

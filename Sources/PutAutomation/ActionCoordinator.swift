@@ -70,24 +70,24 @@ public final class ActionCoordinator {
     /// Save the currently focused window as a rule that applies to every
     /// window of that app (bundle-wide, title-agnostic). Bound to the
     /// default Shift+F5 hotkey.
-    public func saveFocusedWindowAllApp(restoreScope: RestoreScope? = nil) async {
+    public func saveFocusedWindowAllApp(restoreComponents: RestoreComponents? = nil) async {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; saveFocusedWindowAllApp aborted")
             return
         }
         guard let handle = await resolveFocusedWindow(action: "saveFocusedWindowAllApp") else { return }
-        await save(windows: [handle], applyToAll: true, restoreScope: restoreScope)
+        await save(windows: [handle], applyToAll: true, restoreComponents: restoreComponents)
     }
 
     /// Save the currently focused window as a rule that matches only windows
     /// with the same title. Opt-in hotkey (no default binding).
-    public func saveFocusedWindowTitleOnly(restoreScope: RestoreScope? = nil) async {
+    public func saveFocusedWindowTitleOnly(restoreComponents: RestoreComponents? = nil) async {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; saveFocusedWindowTitleOnly aborted")
             return
         }
         guard let handle = await resolveFocusedWindow(action: "saveFocusedWindowTitleOnly") else { return }
-        await save(windows: [handle], applyToAll: false, restoreScope: restoreScope)
+        await save(windows: [handle], applyToAll: false, restoreComponents: restoreComponents)
     }
 
     public func restoreActiveWindow() async {
@@ -101,7 +101,7 @@ public final class ActionCoordinator {
         _ = await restore(windows: [handle], source: .explicit)
     }
 
-    public func saveAllWindows(restoreScope: RestoreScope? = nil) async {
+    public func saveAllWindows(restoreComponents: RestoreComponents? = nil) async {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; saveAllWindows aborted")
             return
@@ -110,11 +110,14 @@ public final class ActionCoordinator {
         let handles = await Task.detached(priority: .userInitiated, operation: {
             probe.snapshot()
         }).value
-        await save(windows: handles, applyToAll: false, restoreScope: restoreScope)
+        await save(windows: handles, applyToAll: false, restoreComponents: restoreComponents)
     }
 
+    /// `source` has no default: `.explicitAll` and `.explicit` consult different
+    /// per-rule trigger flags, and which one a caller means is never obvious
+    /// from the call site.
     @discardableResult
-    public func restoreAllWindows(source: RestoreSource = .explicit) async -> RestoreResult? {
+    public func restoreAllWindows(source: RestoreSource) async -> RestoreResult? {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; restoreAllWindows aborted")
             return nil
@@ -144,12 +147,12 @@ public final class ActionCoordinator {
     /// Save a specific set of windows. Used by the menu bar "Save All Windows
     /// for <App>" action. Each window becomes its own title-specific rule so
     /// the exact arrangement is captured.
-    public func save(windowsForUI handles: [WindowHandle], restoreScope: RestoreScope? = nil) async {
+    public func save(windowsForUI handles: [WindowHandle], restoreComponents: RestoreComponents? = nil) async {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; per-app save aborted")
             return
         }
-        await save(windows: handles, applyToAll: false, restoreScope: restoreScope)
+        await save(windows: handles, applyToAll: false, restoreComponents: restoreComponents)
     }
 
     /// Append a copy of an existing rule with a new UUID and a "(copy)"
@@ -221,19 +224,25 @@ public final class ActionCoordinator {
 
         for handle in windows {
             let descriptor = handle.descriptor
-            guard let rule = activeLayout.rules.first(where: {
-                $0.isEnabled && RuleMatcher.matches($0, against: descriptor)
-            }) else {
+            switch RuleSelection.resolve(for: descriptor, in: activeLayout.rules, source: source) {
+            case .unmatched:
                 tally.unmatched += 1
                 tally.unmatchedBundles.insert(descriptor.bundleID)
-                continue
+            case let .optedOut(rule):
+                tally.skipped += 1
+                log.debug(
+                    """
+                    Rule \(rule.id.uuidString, privacy: .public) opted out of this trigger \
+                    for \(descriptor.bundleID, privacy: .public)
+                    """)
+            case let .apply(rule):
+                await applyPlacement(
+                    rule: rule,
+                    handle: handle,
+                    displays: displays,
+                    source: source,
+                    tally: &tally)
             }
-            await applyPlacement(
-                rule: rule,
-                handle: handle,
-                displays: displays,
-                source: source,
-                tally: &tally)
         }
 
         state.queuedRuleIDs.formUnion(tally.queued)
@@ -489,7 +498,7 @@ extension ActionCoordinator {
             mutator: mutator,
             handle: handle,
             frame: frame,
-            scope: rule.restoreScope)
+            write: rule.restoreComponents.write)
         {
         case .applied:
             tally.applied += 1
@@ -530,23 +539,27 @@ extension ActionCoordinator {
     /// Sendable `WriteOutcome` the caller records on the main actor. Static so
     /// the detached closure captures only Sendable values (never `self`); the
     /// enclosing await hop is trivial while the blocking write and sleeps run in
-    /// the detached task. The scope-to-write mapping, and `WindowMutator`'s
-    /// internal setSize-last ordering, are unchanged - only the executor moved.
+    /// the detached task. `WindowMutator`'s internal setSize-last ordering is
+    /// unaffected - only the executor moved.
     private static func executeWrite(
         mutator: any WindowMutating,
         handle: WindowHandle,
         frame: CGRect,
-        scope: RestoreScope) async -> WriteOutcome
+        write: RestoreWrite) async -> WriteOutcome
     {
         await Task.detached(priority: .userInitiated) { () -> WriteOutcome in
             do {
-                switch scope {
-                case .sizeAndPosition:
+                switch write {
+                case .frame:
                     try mutator.setFrame(handle, to: frame)
-                case .sizeOnly:
+                case .size:
                     try mutator.setSize(handle, to: frame.size)
-                case .displayOnly:
+                case .position:
                     try mutator.setPosition(handle, to: frame.origin)
+                case .nothing:
+                    // Unreachable: the engine skips a rule with no components
+                    // before it ever resolves a frame.
+                    break
                 }
                 return .applied
             } catch let error as AXOperationError {
@@ -647,10 +660,13 @@ public extension ActionCoordinator {
     /// Restore a specific set of windows. Returns an outcome so the per-app
     /// launch retry loop can distinguish applied / no-match / dropped-busy /
     /// untrusted; other callers can ignore the result.
+    /// `source` has no default for the same reason `restoreAllWindows` doesn't:
+    /// the launch retry calls this automatically and the recover action calls it
+    /// on the user's behalf, and only one of those honours a rule's opt-out.
     @discardableResult
     func restore(
         windowsForUI handles: [WindowHandle],
-        source: RestoreSource = .explicit) async -> RestoreOutcome
+        source: RestoreSource) async -> RestoreOutcome
     {
         guard gate.isTrusted else {
             log.warning("Accessibility not granted; per-app restore aborted")
@@ -674,15 +690,4 @@ private enum WriteOutcome {
     case elementGone
     case drifted(target: CGRect, actual: CGRect, attempts: Int)
     case failed(String)
-}
-
-/// Whether a restore call was kicked off by an automatic trigger
-/// (display reconfigure / wake / app launch / layout-fired) or by an
-/// explicit user action (hotkey, menu bar). Auto callers honour the
-/// moved-by-user suppression (when `respectManualMoves` is on) so a window
-/// the user has moved or resized won't get snapped back; explicit callers
-/// always re-apply because the user asked for it.
-public enum RestoreSource: Sendable {
-    case auto
-    case explicit
 }

@@ -5,14 +5,14 @@ import PutPlacement
 import PutWindows
 
 extension ActionCoordinator {
-    /// `restoreScope`: `nil` preserves existing behaviour (new rules restore
-    /// size and position; matched existing rules keep their current scope). A
-    /// non-nil value is an explicit user choice - e.g. a "Save Size Only"
-    /// action passes `.sizeOnly` - and is applied to both newly created rules
-    /// and any matched existing rule. The window's full frame is captured
-    /// regardless of scope, so a narrower scope can be widened later without
+    /// `restoreComponents`: `nil` preserves existing behaviour (new rules
+    /// restore size and position; matched existing rules keep their current
+    /// components). A non-nil value is an explicit user choice - e.g. a "Save
+    /// Size Only" action passes `.sizeOnly` - and is applied to both newly
+    /// created rules and any matched existing rule. The window's full frame is
+    /// captured either way, so a narrower set can be widened later without
     /// resaving.
-    func save(windows: [WindowHandle], applyToAll: Bool, restoreScope: RestoreScope? = nil) async {
+    func save(windows: [WindowHandle], applyToAll: Bool, restoreComponents: RestoreComponents? = nil) async {
         // Never capture Put's own windows. The Rules tab "+" makes Put
         // frontmost, so a focused-window save would otherwise create a
         // self-rule for the Settings window that "Restore All" then applies
@@ -34,7 +34,7 @@ extension ActionCoordinator {
         let outcome = buildRules(
             for: windows,
             applyToAll: applyToAll,
-            restoreScope: restoreScope,
+            restoreComponents: restoreComponents,
             displays: displays,
             into: &activeLayout)
 
@@ -49,7 +49,7 @@ extension ActionCoordinator {
     private func buildRules(
         for windows: [WindowHandle],
         applyToAll: Bool,
-        restoreScope: RestoreScope?,
+        restoreComponents: RestoreComponents?,
         displays: [DisplayFingerprint],
         into activeLayout: inout PutCore.Layout) -> SaveOutcome
     {
@@ -66,7 +66,7 @@ extension ActionCoordinator {
                 globalFrame: descriptor.frame,
                 displays: displays,
                 defaultMissingDisplayPolicy: state.config.defaultMissingDisplayPolicy,
-                restoreScope: restoreScope ?? .sizeAndPosition)
+                restoreComponents: restoreComponents ?? .sizeAndPosition)
             else {
                 continue
             }
@@ -85,7 +85,7 @@ extension ActionCoordinator {
             upsert(
                 newRule,
                 criteria: criteria,
-                restoreScope: restoreScope,
+                restoreComponents: restoreComponents,
                 into: &activeLayout,
                 outcome: &outcome)
             outcome.flashedRects.append(descriptor.frame)
@@ -93,13 +93,13 @@ extension ActionCoordinator {
         return outcome
     }
 
-    /// Replace a matching existing rule in place (preserving its restore scope
-    /// unless `restoreScope` is an explicit override) or append the new rule,
-    /// updating the created/updated tally.
+    /// Replace a matching existing rule in place (preserving its restore
+    /// components unless `restoreComponents` is an explicit override) or append
+    /// the new rule, updating the created/updated tally.
     private func upsert(
         _ newRule: Rule,
         criteria: MatchCriteria,
-        restoreScope: RestoreScope?,
+        restoreComponents: RestoreComponents?,
         into activeLayout: inout PutCore.Layout,
         outcome: inout SaveOutcome)
     {
@@ -111,7 +111,7 @@ extension ActionCoordinator {
             existing.frame = newRule.frame
             // nil preserves the existing rule's choice; an explicit value
             // (e.g. a Save Size Only action) overrides it.
-            existing.restoreScope = restoreScope ?? existing.restoreScope
+            existing.restoreComponents = restoreComponents ?? existing.restoreComponents
             activeLayout.rules[index] = existing
             outcome.updatedCount += 1
         } else {

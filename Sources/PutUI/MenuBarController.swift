@@ -279,22 +279,22 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc
     private func handleSaveFocusedAllAppSizeOnly() {
-        Task { await coordinator.saveFocusedWindowAllApp(restoreScope: .sizeOnly) }
+        Task { await coordinator.saveFocusedWindowAllApp(restoreComponents: .sizeOnly) }
     }
 
     @objc
     private func handleSaveFocusedTitleOnlySizeOnly() {
-        Task { await coordinator.saveFocusedWindowTitleOnly(restoreScope: .sizeOnly) }
+        Task { await coordinator.saveFocusedWindowTitleOnly(restoreComponents: .sizeOnly) }
     }
 
     @objc
     private func handleSaveAllSizeOnly() {
-        Task { await coordinator.saveAllWindows(restoreScope: .sizeOnly) }
+        Task { await coordinator.saveAllWindows(restoreComponents: .sizeOnly) }
     }
 
     @objc
     private func handleRestoreAll() {
-        Task { await coordinator.restoreAllWindows() }
+        Task { await coordinator.restoreAllWindows(source: .explicitAll) }
     }
 
     @objc
@@ -311,7 +311,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         guard let bundleID = sender.representedObject as? String, !bundleID.isEmpty else { return }
         Task { @MainActor in
             let handles = WindowProbe.windows(forBundleID: bundleID)
-            await coordinator.save(windowsForUI: handles, restoreScope: .sizeOnly)
+            await coordinator.save(windowsForUI: handles, restoreComponents: .sizeOnly)
         }
     }
 
@@ -320,7 +320,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         guard let bundleID = sender.representedObject as? String, !bundleID.isEmpty else { return }
         Task { @MainActor in
             let handles = WindowProbe.windows(forBundleID: bundleID)
-            await coordinator.restore(windowsForUI: handles)
+            await coordinator.restore(windowsForUI: handles, source: .explicit)
         }
     }
 

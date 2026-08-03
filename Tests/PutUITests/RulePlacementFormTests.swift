@@ -5,6 +5,41 @@ import PutTestSupport
 import Testing
 
 @MainActor
+@Suite("RulePlacementForm.isLastComponent")
+struct RulePlacementFormComponentToggleTests {
+    @Test
+    func theOnlyComponentLeftOnCannotBeTurnedOff() {
+        // Settings must not let a rule reach "restores nothing"; `Enabled`
+        // already covers that, and the engine would skip it silently.
+        #expect(RulePlacementForm.isLastComponent(\.size, of: .sizeOnly))
+        #expect(RulePlacementForm.isLastComponent(\.display, of: .displayOnly))
+    }
+
+    @Test
+    func aComponentWithCompanyCanBeTurnedOff() {
+        #expect(!RulePlacementForm.isLastComponent(\.size, of: .sizeAndPosition))
+        #expect(!RulePlacementForm.isLastComponent(
+            \.display,
+            of: RestoreComponents(size: true, position: false, display: true)))
+    }
+
+    @Test
+    func anOffComponentIsNeverTheLastOneStanding() {
+        #expect(!RulePlacementForm.isLastComponent(\.position, of: .sizeOnly))
+        #expect(!RulePlacementForm.isLastComponent(\.size, of: .displayOnly))
+    }
+
+    @Test
+    func turningDisplayOffWithPositionOnWouldEmptyTheSet() {
+        // Display clears position with it, so with size off the pair is the
+        // last one standing even though two flags are on. The form disables the
+        // display toggle whenever position is on, which covers this too.
+        let positionOnly = RestoreComponents(size: false, position: true, display: true)
+        #expect(RulePlacementForm.isLastComponent(\.display, of: positionOnly))
+    }
+}
+
+@MainActor
 @Suite("RulePlacementForm.recomputeNormalised")
 struct RulePlacementFormTests {
     @Test

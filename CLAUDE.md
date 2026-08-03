@@ -47,15 +47,29 @@ Three spaces, converted only in `PutPlacement.Coordinates`:
 
 Display identity resolves via `DisplayMatcher` chain: UUID → vendor+product+serial → closest point size → primary. Returned `DisplayMatchQuality` is comparable; quality `<= .equivalent` means "found the target", anything else means "missing, apply `MissingDisplayPolicy`".
 
-## Restore scope
+## Restore components
 
-`Rule.restoreScope` selects which AX write a restore performs: `.sizeAndPosition` → `setFrame`, `.sizeOnly` → `setSize`, `.displayOnly` → `setPosition`. Every write path must switch on all three - `ActionCoordinator.executeWrite` and `AutoTriggerController.write` are the two.
+`Rule.restoreComponents` is three independent flags - `size`, `position`, `display` - superseding the old three-way `RestoreScope`. `position` implies `display`, because the saved origin is stored relative to a display; `RestoreComponents` holds that invariant in its initialiser and in property observers on both flags, so no caller has to.
 
-`.displayOnly` is why `PlacementEngine.resolve` takes a `currentFrame`: its target is derived from where the window currently sits (size preserved, the window's *centre* mapped proportionally onto the target display via `Coordinates.moving`), not from the saved frame. Queued-rule fulfilment resolves per window for the same reason - two windows of one app can land in different places.
+`RestoreComponents.write` maps the flags onto the single AX write a restore performs (`.frame` / `.size` / `.position` / `.nothing`). Both write paths - `ActionCoordinator.executeWrite` and `AutoTriggerController.write` - switch on that, so a new combination can't reach one path and miss the other.
 
-A `.displayOnly` rule must resolve to the window's exact current frame when it's already on the target display. `PlacementHistoryStore.shouldSuppressAutoReplay` skips moved-by-user suppression for `.displayOnly` on that basis, so any nudge repeats on every wake and display event. Two places enforce it: `Coordinates.moving` returns its input unchanged for a same-display move, ahead of the clamp that keeps a cross-display move on screen, and both write paths run the menu-bar clamp through `ActionCoordinator.clampingIfMoving`, which skips it when the resolved frame equals the current one.
+`RestoreScope` survives only as the compatibility bridge in `Rule`'s Codable. `RestoreScope.closest(to:)` picks what an older build should see, and never widens: any combination with `position` off maps to something other than `.sizeAndPosition`, so a downgrade can't replay a position the user turned off.
 
-A `.displayOnly` rule never resizes, so when there's no usable current frame (none passed, non-finite, or the window overlaps no display) the engine returns `.skipped` rather than falling back to the saved frame. Note `Coordinates.displayContaining` answers the save-time question and falls back to primary for a frame overlapping nothing; `displayOnlyFrame` rejects that fallback explicitly.
+A rule that restores `display` without `position` derives its target from where the window currently sits (the window's *centre* mapped proportionally onto the target display via `Coordinates.moving`), which is why `PlacementEngine.resolve` takes a `currentFrame`. With `size` also on, the mapping uses the saved size rather than the current one. Queued-rule fulfilment resolves per window for the same reason - two windows of one app can land in different places.
+
+Display-without-position must resolve to the window's exact current frame when it's already on the target display. Two places keep that no-op: `Coordinates.moving` returns its input unchanged for a same-display move with no resize, and both write paths run the menu-bar clamp through `ActionCoordinator.clampingIfMoving`, which skips it when the resolved frame equals the current one. A same-display *resize* (display plus `size`) keeps the origin but still clamps - growing a window parked near an edge would otherwise push it off the panel, and that rule asked for a size, not for the window to leave.
+
+`PlacementHistoryStore.shouldSuppressAutoReplay` suppresses only for rules restoring a saved `position`, since only they assert an origin to compare against, and narrows the comparison to the origin (`PlacementHistory.FrameComparison`) when `size` is off. A rule only gets to suppress on what it asserts: comparing a size the rule leaves alone reports every user resize as a target mismatch and switches suppression off entirely, which is the opposite of what it is for.
+
+Such a rule has no position of its own, so when there's no usable current frame (none passed, non-finite, or the window overlaps no display) the engine returns `.skipped` rather than falling back to the saved origin. Note `Coordinates.displayContaining` answers the save-time question and falls back to primary for a frame overlapping nothing; `derivedFrame` rejects that fallback explicitly.
+
+## Restore triggers
+
+`Rule.autoPlace` and `Rule.includeInRestoreAll` decide which restore sources apply a rule. `RestoreSource` names the three: `.auto` (display change, wake, app launch, Put's own launch, screen-config layout activation, queued-rule fulfilment) consults `autoPlace`; `.explicitAll` (the restore-all hotkey and menu item) consults `includeInRestoreAll`; `.explicit` (active-window hotkey, per-app menu actions, a layout activated by its own hotkey, unreachable-window recover) consults neither. Neither `restoreAllWindows(source:)` nor `restore(windowsForUI:source:)` has a default source: both have automatic and user-initiated callers, and a caller that omits it would silently bypass a rule's opt-out.
+
+`RuleSelection.resolve` matches first and gates second. Gating inside the match would let a rule that opted out fall through to a broader rule - typically the bundle-wide one it was written to override - which would then move the window on exactly the trigger the user turned off.
+
+The layout hotkey deliberately applies every rule in the layout (`.explicit`), while screen-config activation is automatic (`.auto`). See issue #8: that split is the one part of this design flagged for revisiting after real use.
 
 ## Rule matching semantics
 
@@ -72,7 +86,7 @@ Invalid regex patterns fail closed (no match). Keep it that way - fail-open woul
 
 `Config` is schema-versioned via `putSchemaVersion`. `ConfigStore` migration stub stamps older versions forward; future incompatible changes bump the int and add a real migration branch. Reads and writes are atomic (tmp + replace); writes force 0600 perms on both file and parent directory.
 
-`Rule` hand-rolls `Codable` so `restoreScope` can fall back to the superseded `restoresPosition` bool on read, and still writes that bool on encode so a config opened by an older build degrades to size-only instead of re-asserting a position the user cleared. Keep the dual write when touching the scope.
+`Rule` hand-rolls `Codable` for two generations of fallback: `restoreComponents` decodes from `restoreScope` when absent, and from the `restoresPosition` bool when that's absent too. Encode writes all three, so a config opened by an older build degrades instead of re-asserting geometry the user cleared. Keep the triple write when touching the components. `restoreScope` is decoded as a raw string, not the enum, so an unknown value from a newer build falls back rather than throwing - a throw reaches `ConfigStore.load`, which quarantines the file and bootstraps a fresh default, losing every rule.
 
 `KeyboardShortcuts` stores chosen bindings in `UserDefaults` keyed by `Name.rawValue`. Per-layout activation shortcuts use `KeyboardShortcuts.Name("layout.<uuid>")` so they survive restarts as long as the `Layout.id` does. `LayoutHotkeys.syncRegistrations` is called on launch and polled every 2 seconds from `AppDelegate.observeLayoutChanges` to catch layout add/remove.
 
@@ -86,7 +100,9 @@ Default `swift test` is hermetic and fast (about a second). AX-dependent integra
 
 A test that posts to `NSWorkspace.shared.notificationCenter` or `DistributedNotificationCenter` shares that bus with the OS, so a real system wake, unlock or display change can deliver an extra event mid-test. Assert the boundary the test exists to prove (`>= 1` for "the observer is wired") rather than an exact count, and cover coalescing in a test that drives the debouncer directly. Two CI flakes have come from exact-count assertions over timing windows: this one, and `appLaunchRetryCancelsOnRelaunch`, where the split between "attempt belongs to the cancelled schedule" and "cancellation took effect" is not observable.
 
-Pure placement matrix in `Tests/PutPlacementTests/PlacementEngineTests.swift` covers same-resolution replay, downscale, `Looks like` change, missing display fallback, arrangement origin shift, vendor-match-as-equivalent. When touching `PlacementEngine`, add to that matrix.
+Pure placement matrix in `Tests/PutPlacementTests/PlacementEngineTests.swift` covers same-resolution replay, downscale, `Looks like` change, missing display fallback, arrangement origin shift, vendor-match-as-equivalent. `PlacementEngineComponentsTests` covers the `RestoreComponents` combinations and `PlacementEngineDisplayOnlyTests` the display-derived position; the three are split only to stay under the type-body cap. When touching `PlacementEngine`, add to whichever matches.
+
+Nothing hermetic can reach a real display: `DisplayProbe.snapshot()` returns nothing in the xctest host, so `ActionCoordinator.restore` bails before matching a rule and any assertion past that point passes vacuously. Logic that needs coverage belongs in a pure function the tests can call directly - `RuleSelection.resolve` and `PlacementHistory.shouldSkipReplay` are that shape for exactly this reason.
 
 Test doubles for the PutWindows seams live in `Tests/PutTestSupport/Doubles.swift` (`StubWindowProbe`, `RecordingWindowMutator`, `StubAccessibilityGate`). Use them instead of adding a per-suite copy; the suites previously each kept their own variant and the copies drifted. Doubles for the PutAutomation-only seams (`SaveFlashing`, `SaveScopeNotifying`) stay local, since hoisting them would make every test target depend on PutAutomation.
 

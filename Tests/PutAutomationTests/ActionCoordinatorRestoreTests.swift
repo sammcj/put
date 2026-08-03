@@ -154,7 +154,7 @@ struct ActionCoordinatorRestoreTests {
         let mutator = RecordingWindowMutator()
         let coordinator = makeCoordinator(state: state, store: store, probe: probe, mutator: mutator, trusted: false)
 
-        await coordinator.restoreAllWindows()
+        await coordinator.restoreAllWindows(source: .explicitAll)
 
         #expect(probe.snapshotCalls == 0)
         #expect(mutator.frameCalls.isEmpty)
@@ -169,7 +169,7 @@ struct ActionCoordinatorRestoreTests {
         let mutator = RecordingWindowMutator()
         let coordinator = makeCoordinator(state: state, store: store, probe: probe, mutator: mutator, trusted: false)
 
-        await coordinator.restore(windowsForUI: [handle])
+        await coordinator.restore(windowsForUI: [handle], source: .explicit)
 
         #expect(mutator.frameCalls.isEmpty)
     }
@@ -199,7 +199,7 @@ struct ActionCoordinatorRestoreTests {
         let mutator = RecordingWindowMutator()
         let coordinator = makeCoordinator(state: state, store: store, probe: probe, mutator: mutator, trusted: true)
 
-        await coordinator.restoreAllWindows()
+        await coordinator.restoreAllWindows(source: .explicitAll)
 
         #expect(probe.snapshotCalls == 1)
         #expect(mutator.frameCalls.isEmpty)
@@ -222,7 +222,7 @@ struct ActionCoordinatorRestoreTests {
         let mutator = RecordingWindowMutator()
         let coordinator = makeCoordinator(state: state, store: store, probe: probe, mutator: mutator, trusted: true)
 
-        await coordinator.restore(windowsForUI: [handle])
+        await coordinator.restore(windowsForUI: [handle], source: .explicit)
 
         #expect(mutator.frameCalls.isEmpty)
     }
@@ -239,8 +239,8 @@ struct ActionCoordinatorRestoreTests {
         let mutator = RecordingWindowMutator()
         let coordinator = makeCoordinator(state: state, store: store, probe: probe, mutator: mutator, trusted: true)
 
-        async let firstCall = coordinator.restoreAllWindows()
-        async let secondCall = coordinator.restoreAllWindows()
+        async let firstCall = coordinator.restoreAllWindows(source: .explicitAll)
+        async let secondCall = coordinator.restoreAllWindows(source: .explicitAll)
         _ = await (firstCall, secondCall)
 
         // Depending on scheduling at most one re-entrant call may be blocked.

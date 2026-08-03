@@ -129,12 +129,12 @@ struct ActionCoordinatorTests {
             probe: StubWindowProbe(handles: [makeHandle(frame: frame)]),
             mutator: RecordingWindowMutator(),
             trusted: true)
-        await sizeOnlyCoordinator.saveAllWindows(restoreScope: .sizeOnly)
+        await sizeOnlyCoordinator.saveAllWindows(restoreComponents: .sizeOnly)
 
         if let defaultRule = defaultState.activeLayout?.rules.first {
-            #expect(defaultRule.restoreScope == .sizeAndPosition)
+            #expect(defaultRule.restoreComponents == .sizeAndPosition)
             let sizeOnlyRule = try #require(sizeOnlyState.activeLayout?.rules.first)
-            #expect(sizeOnlyRule.restoreScope == .sizeOnly)
+            #expect(sizeOnlyRule.restoreComponents == .sizeOnly)
         }
     }
 
@@ -156,12 +156,12 @@ struct ActionCoordinatorTests {
         guard let seeded = state.activeLayout?.rules.first else {
             return // headless host: no rule landed, nothing to re-save
         }
-        #expect(seeded.restoreScope == .sizeAndPosition)
+        #expect(seeded.restoreComponents == .sizeAndPosition)
 
-        await coordinator.saveFocusedWindowAllApp(restoreScope: .sizeOnly)
+        await coordinator.saveFocusedWindowAllApp(restoreComponents: .sizeOnly)
         let rules = try #require(state.activeLayout?.rules)
         #expect(rules.count == 1)
-        #expect(rules.first?.restoreScope == .sizeOnly)
+        #expect(rules.first?.restoreComponents == .sizeOnly)
     }
 
     @Test
@@ -180,7 +180,7 @@ struct ActionCoordinatorTests {
             mutator: RecordingWindowMutator(),
             trusted: true)
 
-        await coordinator.saveFocusedWindowAllApp(restoreScope: .displayOnly)
+        await coordinator.saveFocusedWindowAllApp(restoreComponents: .displayOnly)
         guard state.activeLayout?.rules.first != nil else {
             return // headless host: no rule landed, nothing to re-save
         }
@@ -188,7 +188,7 @@ struct ActionCoordinatorTests {
         await coordinator.saveFocusedWindowAllApp()
         let rules = try #require(state.activeLayout?.rules)
         #expect(rules.count == 1)
-        #expect(rules.first?.restoreScope == .displayOnly)
+        #expect(rules.first?.restoreComponents == .displayOnly)
         #expect(rules.first?.frame.absolute.size == frame.size)
     }
 
@@ -376,7 +376,7 @@ struct ActionCoordinatorSizeOnlyTests {
             matchCriteria: MatchCriteria(bundleID: "com.example.one", applyToAllWindows: true),
             targetDisplay: fingerprint(),
             frame: dummyFrame(),
-            restoreScope: .sizeOnly)
+            restoreComponents: .sizeOnly)
         let layout = Layout(id: UUID(), name: "L", rules: [rule])
         let state = AppState(config: Config(layouts: [layout], activeLayoutID: layout.id))
         let store = try makeStore()
@@ -389,7 +389,7 @@ struct ActionCoordinatorSizeOnlyTests {
             mutator: mutator,
             gate: StubAccessibilityGate())
 
-        await coordinator.restore(windowsForUI: [handle])
+        await coordinator.restore(windowsForUI: [handle], source: .explicit)
 
         #expect(mutator.frameCalls.isEmpty)
         if !mutator.sizeCalls.isEmpty {
@@ -416,7 +416,7 @@ struct ActionCoordinatorSizeOnlyTests {
             mutator: mutator,
             gate: StubAccessibilityGate())
 
-        await coordinator.restore(windowsForUI: [handle])
+        await coordinator.restore(windowsForUI: [handle], source: .explicit)
 
         #expect(mutator.sizeCalls.isEmpty)
         if !mutator.frameCalls.isEmpty {
@@ -437,7 +437,7 @@ struct ActionCoordinatorSizeOnlyTests {
             matchCriteria: MatchCriteria(bundleID: "com.example.one", applyToAllWindows: true),
             targetDisplay: primary,
             frame: dummyFrame(),
-            restoreScope: .displayOnly)
+            restoreComponents: .displayOnly)
         let layout = Layout(id: UUID(), name: "L", rules: [rule])
         let state = AppState(config: Config(layouts: [layout], activeLayoutID: layout.id))
         let store = try makeStore()
@@ -450,7 +450,7 @@ struct ActionCoordinatorSizeOnlyTests {
             mutator: mutator,
             gate: StubAccessibilityGate())
 
-        await coordinator.restore(windowsForUI: [handle])
+        await coordinator.restore(windowsForUI: [handle], source: .explicit)
 
         #expect(mutator.frameCalls.isEmpty)
         #expect(mutator.sizeCalls.isEmpty)
@@ -484,7 +484,7 @@ struct ActionCoordinatorSizeOnlyTests {
             matchCriteria: MatchCriteria(bundleID: "com.example.one", applyToAllWindows: true),
             targetDisplay: primary,
             frame: dummyFrame(),
-            restoreScope: .displayOnly)
+            restoreComponents: .displayOnly)
         let layout = Layout(id: UUID(), name: "L", rules: [rule])
         let state = AppState(config: Config(layouts: [layout], activeLayoutID: layout.id))
         let store = try makeStore()
@@ -496,7 +496,7 @@ struct ActionCoordinatorSizeOnlyTests {
             mutator: mutator,
             gate: StubAccessibilityGate())
 
-        await coordinator.restore(windowsForUI: [handle])
+        await coordinator.restore(windowsForUI: [handle], source: .explicit)
 
         #expect(mutator.positionCalls.count == 1)
         #expect(mutator.positionCalls.first?.1 == aboveMenuBar.origin)

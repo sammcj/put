@@ -260,141 +260,159 @@ struct RuleLayoutTests {
         #expect(decoded == rule)
     }
 
-    @Test
-    func ruleRestoreScopeDefaultsToSizeAndPosition() throws {
-        // Rule's default initializer and the JSON decoder must both yield
-        // .sizeAndPosition so existing on-disk configs keep their current
-        // behaviour after the schema gains the new field.
-        let fp = DisplayFingerprint(
-            uuid: UUID(),
-            vendorID: nil,
-            productID: nil,
-            serialNumber: nil,
-            pointSize: CGSize(width: 1920, height: 1080),
-            pixelSize: CGSize(width: 1920, height: 1080),
-            scaleFactor: 1,
-            globalOrigin: .zero,
-            isPrimary: true)
-        let frame = WindowFrame(
-            absolute: CGRect(x: 100, y: 100, width: 800, height: 600),
-            normalised: UnitRect(x: 0.05, y: 0.1, width: 0.4, height: 0.5))
-        let rule = Rule(
-            matchCriteria: MatchCriteria(bundleID: "com.apple.Safari"),
-            targetDisplay: fp,
-            frame: frame)
-        #expect(rule.restoreScope == .sizeAndPosition)
+    private static let fingerprint = DisplayFingerprint(
+        uuid: UUID(),
+        vendorID: nil,
+        productID: nil,
+        serialNumber: nil,
+        pointSize: CGSize(width: 1920, height: 1080),
+        pixelSize: CGSize(width: 1920, height: 1080),
+        scaleFactor: 1,
+        globalOrigin: .zero,
+        isPrimary: true)
 
-        // Legacy JSON predating both fields round-trips as .sizeAndPosition.
-        let frameJSON = try String(data: JSONEncoder().encode(frame), encoding: .utf8) ?? "{}"
-        let fpJSON = try String(data: JSONEncoder().encode(fp), encoding: .utf8) ?? "{}"
-        let criteriaJSON = try String(
-            data: JSONEncoder().encode(MatchCriteria(bundleID: "com.apple.Safari")),
-            encoding: .utf8) ?? "{}"
-        let json = """
-        {
-            "id": "\(rule.id.uuidString)",
-            "descriptiveLabel": "",
-            "matchCriteria": \(criteriaJSON),
-            "targetDisplay": \(fpJSON),
-            "frame": \(frameJSON),
-            "missingDisplayPolicy": "primaryProportional",
-            "isEnabled": true
-        }
-        """
-        let decoded = try JSONDecoder().decode(Rule.self, from: Data(json.utf8))
-        #expect(decoded.restoreScope == .sizeAndPosition)
+    private static let savedFrame = WindowFrame(
+        absolute: CGRect(x: 100, y: 100, width: 800, height: 600),
+        normalised: UnitRect(x: 0.05, y: 0.1, width: 0.4, height: 0.5))
+
+    private static func makeRule(
+        restoreComponents: RestoreComponents = .sizeAndPosition,
+        autoPlace: Bool = true,
+        includeInRestoreAll: Bool = true) -> Rule
+    {
+        Rule(
+            matchCriteria: MatchCriteria(bundleID: "com.apple.Safari"),
+            targetDisplay: fingerprint,
+            frame: savedFrame,
+            restoreComponents: restoreComponents,
+            autoPlace: autoPlace,
+            includeInRestoreAll: includeInRestoreAll)
     }
 
-    @Test
-    func ruleRestoreScopeDecodesLegacyRestoresPositionFlag() throws {
-        // Configs written between the size-only feature and the display-only
-        // scope carry `restoresPosition` and no `restoreScope`; false must map
-        // to .sizeOnly, not silently widen back to a full restore.
-        let fp = DisplayFingerprint(
-            uuid: UUID(),
-            vendorID: nil,
-            productID: nil,
-            serialNumber: nil,
-            pointSize: CGSize(width: 1920, height: 1080),
-            pixelSize: CGSize(width: 1920, height: 1080),
-            scaleFactor: 1,
-            globalOrigin: .zero,
-            isPrimary: true)
-        let frame = WindowFrame(
-            absolute: CGRect(x: 100, y: 100, width: 800, height: 600),
-            normalised: UnitRect(x: 0.05, y: 0.1, width: 0.4, height: 0.5))
-        let frameJSON = try String(data: JSONEncoder().encode(frame), encoding: .utf8) ?? "{}"
-        let fpJSON = try String(data: JSONEncoder().encode(fp), encoding: .utf8) ?? "{}"
+    /// A rule as it appears on disk. `extraKeys` is spliced in after the last
+    /// key (so it must start with a comma), letting each migration test state
+    /// only what makes it different.
+    private static func ruleJSON(extraKeys: String = "") throws -> Data {
+        let encoder = JSONEncoder()
+        let frameJSON = try String(data: encoder.encode(savedFrame), encoding: .utf8) ?? "{}"
+        let fingerprintJSON = try String(data: encoder.encode(fingerprint), encoding: .utf8) ?? "{}"
         let criteriaJSON = try String(
-            data: JSONEncoder().encode(MatchCriteria(bundleID: "com.apple.Safari")),
+            data: encoder.encode(MatchCriteria(bundleID: "com.apple.Safari")),
             encoding: .utf8) ?? "{}"
-        let json = """
+        return Data("""
         {
             "id": "\(UUID().uuidString)",
             "descriptiveLabel": "",
             "matchCriteria": \(criteriaJSON),
-            "targetDisplay": \(fpJSON),
+            "targetDisplay": \(fingerprintJSON),
             "frame": \(frameJSON),
             "missingDisplayPolicy": "primaryProportional",
-            "isEnabled": true,
-            "restoresPosition": false
+            "isEnabled": true\(extraKeys)
         }
-        """
-        let decoded = try JSONDecoder().decode(Rule.self, from: Data(json.utf8))
-        #expect(decoded.restoreScope == .sizeOnly)
+        """.utf8)
     }
 
     @Test
-    func ruleEncodesLegacyRestoresPositionAlongsideScope() throws {
-        // The legacy key is still written so a config round-tripping through an
-        // older build degrades to size-only rather than re-asserting a position
-        // the user deliberately gave up.
-        let fp = DisplayFingerprint(
-            uuid: UUID(),
-            vendorID: nil,
-            productID: nil,
-            serialNumber: nil,
-            pointSize: CGSize(width: 1920, height: 1080),
-            pixelSize: CGSize(width: 1920, height: 1080),
-            scaleFactor: 1,
-            globalOrigin: .zero,
-            isPrimary: true)
-        let rule = Rule(
-            matchCriteria: MatchCriteria(bundleID: "com.apple.Safari"),
-            targetDisplay: fp,
-            frame: WindowFrame(
-                absolute: CGRect(x: 100, y: 100, width: 800, height: 600),
-                normalised: UnitRect(x: 0.05, y: 0.1, width: 0.4, height: 0.5)),
-            restoreScope: .displayOnly)
+    func ruleRestoreComponentsDefaultToSizeAndPosition() throws {
+        // Rule's default initialiser and the JSON decoder must both yield
+        // size + position + display so existing on-disk configs keep their
+        // current behaviour after the schema gains the new field.
+        #expect(Self.makeRule().restoreComponents == .sizeAndPosition)
+        let decoded = try JSONDecoder().decode(Rule.self, from: Self.ruleJSON())
+        #expect(decoded.restoreComponents == .sizeAndPosition)
+    }
+
+    @Test
+    func ruleRestoreComponentsDecodeLegacyRestoresPositionFlag() throws {
+        // Configs written between the size-only feature and the display-only
+        // scope carry `restoresPosition` and nothing newer; false must map to
+        // size-only, not silently widen back to a full restore.
+        let decoded = try JSONDecoder().decode(
+            Rule.self,
+            from: Self.ruleJSON(extraKeys: #","restoresPosition": false"#))
+        #expect(decoded.restoreComponents == .sizeOnly)
+    }
+
+    @Test
+    func ruleRestoreComponentsDecodeLegacyScope() throws {
+        // Configs written before the components existed carry `restoreScope`.
+        let decoded = try JSONDecoder().decode(
+            Rule.self,
+            from: Self.ruleJSON(extraKeys: #","restoreScope": "displayOnly""#))
+        #expect(decoded.restoreComponents == .displayOnly)
+    }
+
+    @Test
+    func ruleRestoreComponentsWinOverLegacyScope() throws {
+        // Both keys are written on every save, so the newer one must decide: a
+        // build that only understood the scope can express neither
+        // size-with-display nor position-without-size.
+        let decoded = try JSONDecoder().decode(
+            Rule.self,
+            from: Self.ruleJSON(extraKeys: """
+            ,
+                "restoreScope": "sizeOnly",
+                "restoreComponents": { "size": true, "position": false, "display": true }
+            """))
+        #expect(decoded.restoreComponents == RestoreComponents(size: true, position: false, display: true))
+    }
+
+    @Test
+    func ruleRestoreComponentsDecodeForcesDisplayUnderPosition() throws {
+        // A hand-edited config can ask for a position without a display, which
+        // has no meaning: the saved origin is relative to one.
+        let decoded = try JSONDecoder().decode(
+            Rule.self,
+            from: Self.ruleJSON(extraKeys: """
+            ,
+                "restoreComponents": { "size": false, "position": true, "display": false }
+            """))
+        #expect(decoded.restoreComponents.display)
+    }
+
+    @Test
+    func ruleEncodesSizeWithDisplayAsLegacySizeOnly() throws {
+        // Size on a target display has no legacy equivalent. It degrades to the
+        // scope that asserts least: resize where the window stands, rather than
+        // replaying a saved position the user turned off.
+        let components = RestoreComponents(size: true, position: false, display: true)
         let object = try JSONSerialization.jsonObject(
-            with: JSONEncoder().encode(rule)) as? [String: Any]
+            with: JSONEncoder().encode(Self.makeRule(restoreComponents: components))) as? [String: Any]
+        #expect(object?["restoreScope"] as? String == "sizeOnly")
+        #expect(object?["restoresPosition"] as? Bool == false)
+    }
+
+    @Test
+    func ruleTriggerFlagsDefaultOnAndRoundtrip() throws {
+        // Absent from every config written before the flags existed, so both
+        // must decode as on: an upgrade must not stop placing windows.
+        let migrated = try JSONDecoder().decode(Rule.self, from: Self.ruleJSON())
+        #expect(migrated.autoPlace)
+        #expect(migrated.includeInRestoreAll)
+
+        let rule = Self.makeRule(autoPlace: false, includeInRestoreAll: false)
+        let decoded = try JSONDecoder().decode(Rule.self, from: JSONEncoder().encode(rule))
+        #expect(!decoded.autoPlace)
+        #expect(!decoded.includeInRestoreAll)
+    }
+
+    @Test
+    func ruleEncodesLegacyKeysAlongsideComponents() throws {
+        // The legacy keys are still written so a config round-tripping through
+        // an older build degrades rather than re-asserting geometry the user
+        // deliberately gave up.
+        let object = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(Self.makeRule(restoreComponents: .displayOnly))) as? [String: Any]
         #expect(object?["restoreScope"] as? String == "displayOnly")
         #expect(object?["restoresPosition"] as? Bool == false)
     }
 
     @Test
-    func ruleRestoreScopeRoundtrips() throws {
-        let fp = DisplayFingerprint(
-            uuid: UUID(),
-            vendorID: nil,
-            productID: nil,
-            serialNumber: nil,
-            pointSize: CGSize(width: 1920, height: 1080),
-            pixelSize: CGSize(width: 1920, height: 1080),
-            scaleFactor: 1,
-            globalOrigin: .zero,
-            isPrimary: true)
-        let frame = WindowFrame(
-            absolute: CGRect(x: 100, y: 100, width: 800, height: 600),
-            normalised: UnitRect(x: 0.05, y: 0.1, width: 0.4, height: 0.5))
-        let rule = Rule(
-            matchCriteria: MatchCriteria(bundleID: "com.apple.Safari"),
-            targetDisplay: fp,
-            frame: frame,
-            restoreScope: .displayOnly)
-        let data = try JSONEncoder().encode(rule)
-        let decoded = try JSONDecoder().decode(Rule.self, from: data)
-        #expect(decoded.restoreScope == .displayOnly)
+    func ruleRestoreComponentsRoundtrip() throws {
+        let rule = Self.makeRule(
+            restoreComponents: RestoreComponents(size: false, position: true, display: true))
+        let decoded = try JSONDecoder().decode(Rule.self, from: JSONEncoder().encode(rule))
+        #expect(decoded.restoreComponents == rule.restoreComponents)
         #expect(decoded == rule)
     }
 

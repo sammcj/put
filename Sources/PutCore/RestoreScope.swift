@@ -1,33 +1,53 @@
 import Foundation
 
-/// How much of a saved placement a rule re-asserts when it's restored.
+/// Superseded by `RestoreComponents`, which expresses combinations this enum
+/// can't (size on a target display without replaying the saved position, say).
 ///
-/// The saved frame is always captured in full, whichever scope is chosen, so
-/// switching between these never loses the original coordinates.
+/// Retained for the `restoreScope` key in `Rule`'s Codable, which is still read
+/// (configs written before the components existed) and still written (so a
+/// config round-tripping through an older build degrades to the nearest scope
+/// rather than re-asserting geometry the user cleared).
 public enum RestoreScope: String, Codable, Sendable, CaseIterable, Hashable {
     /// Put the window back on its saved display at its saved size and position.
     case sizeAndPosition
 
     /// Resize the window to its saved size and leave it wherever it currently
-    /// sits. Used for "force this size" rules.
+    /// sits.
     case sizeOnly
 
-    /// Move the window onto its saved display and change nothing else. The
-    /// window keeps its current size, and its position on the new display
-    /// mirrors where it sat on the one it came from. Nothing happens when the
-    /// window is already on the right display.
+    /// Move the window onto its saved display and change nothing else.
     case displayOnly
 
-    /// Whether restoring writes the window's size.
-    public var restoresSize: Bool {
-        self != .displayOnly
+    /// The components an older config's scope maps onto.
+    public var components: RestoreComponents {
+        switch self {
+        case .sizeAndPosition:
+            .sizeAndPosition
+        case .sizeOnly:
+            .sizeOnly
+        case .displayOnly:
+            .displayOnly
+        }
     }
 
-    /// Whether restoring writes the window's position. True for `.displayOnly`
-    /// as well: moving a window between displays *is* a position write, just
-    /// one derived from where the window currently is rather than replayed
-    /// from the saved frame.
-    public var restoresPosition: Bool {
-        self != .sizeOnly
+    /// Nearest scope an older build can act on, for the compatibility key.
+    ///
+    /// Combinations without an exact equivalent degrade to the scope that
+    /// asserts least: size on a target display becomes `.sizeOnly` (resize
+    /// where it stands) rather than `.sizeAndPosition`, which would replay a
+    /// position the user turned off. An empty set has no equivalent at all and
+    /// maps to `.sizeOnly`; Settings keeps at least one component on, so it
+    /// only arises from a hand-edited config.
+    public static func closest(to components: RestoreComponents) -> RestoreScope {
+        switch (components.size, components.position) {
+        case (true, true):
+            .sizeAndPosition
+        case (true, false):
+            .sizeOnly
+        case (false, true):
+            .displayOnly
+        case (false, false):
+            components.display ? .displayOnly : .sizeOnly
+        }
     }
 }

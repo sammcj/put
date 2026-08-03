@@ -18,14 +18,14 @@ struct PlacementHistoryStoreTests {
             globalOrigin: .zero)
     }
 
-    private func makeRule(restoreScope: RestoreScope = .sizeAndPosition) -> Rule {
+    private func makeRule(restoreComponents: RestoreComponents = .sizeAndPosition) -> Rule {
         Rule(
             matchCriteria: MatchCriteria(bundleID: "com.example.one"),
             targetDisplay: wideDisplay(),
             frame: WindowFrame(
                 absolute: CGRect(x: 0, y: 0, width: 100, height: 100),
                 normalised: UnitRect(x: 0, y: 0, width: 0.1, height: 0.1)),
-            restoreScope: restoreScope)
+            restoreComponents: restoreComponents)
     }
 
     private func handle(at frame: CGRect) -> WindowHandle {
@@ -102,7 +102,7 @@ struct PlacementHistoryStoreTests {
     @Test
     func sizeOnlyRuleNeverSuppresses() {
         let store = PlacementHistoryStore()
-        let rule = makeRule(restoreScope: .sizeOnly)
+        let rule = makeRule(restoreComponents: .sizeOnly)
         let window = handle(at: movedAway)
         store.record(handle: window, rule: rule, frame: target)
 
@@ -122,7 +122,85 @@ struct PlacementHistoryStoreTests {
         // they resolve to a no-op when the window is already on the right
         // display. Suppression would only ever block a legitimate correction.
         let store = PlacementHistoryStore()
-        let rule = makeRule(restoreScope: .displayOnly)
+        let rule = makeRule(restoreComponents: .displayOnly)
+        let window = handle(at: movedAway)
+        store.record(handle: window, rule: rule, frame: target)
+
+        let suppressed = store.shouldSuppressAutoReplay(
+            rule: rule,
+            handle: window,
+            targetFrame: target,
+            targetDisplay: wideDisplay(),
+            source: .auto)
+        #expect(suppressed == false)
+    }
+
+    @Test
+    func positionWithoutSizeSuppressesAfterAUserMove() {
+        // A rule restoring a position but not a size asserts an origin on every
+        // auto trigger, so it needs the same protection as a full one. Without
+        // it the window snaps back to the saved origin on every wake and display
+        // change, forever, with `respectManualMoves` on.
+        let store = PlacementHistoryStore()
+        let rule = makeRule(restoreComponents: RestoreComponents(size: false, position: true, display: true))
+        let window = handle(at: movedAway)
+        store.record(handle: window, rule: rule, frame: target)
+
+        let suppressed = store.shouldSuppressAutoReplay(
+            rule: rule,
+            handle: window,
+            targetFrame: target,
+            targetDisplay: wideDisplay(),
+            source: .auto)
+        #expect(suppressed)
+    }
+
+    @Test
+    func positionWithoutSizeIgnoresAUserResizeOnBothSidesOfTheCheck() {
+        // Such a rule fills its target's size in from the window's current one,
+        // so a user resize changes both the recorded target and the next one.
+        // Comparing size would fail the target-match guard and switch
+        // suppression off - the opposite of what a user move should do.
+        let store = PlacementHistoryStore()
+        let rule = makeRule(restoreComponents: RestoreComponents(size: false, position: true, display: true))
+        let resizedAndMoved = CGRect(x: 500, y: 500, width: 1200, height: 900)
+        let window = handle(at: resizedAndMoved)
+        store.record(handle: window, rule: rule, frame: target)
+
+        let suppressed = store.shouldSuppressAutoReplay(
+            rule: rule,
+            handle: window,
+            targetFrame: CGRect(origin: target.origin, size: resizedAndMoved.size),
+            targetDisplay: wideDisplay(),
+            source: .auto)
+        #expect(suppressed)
+    }
+
+    @Test
+    func positionWithoutSizeDoesNotSuppressAPlainResizeInPlace() {
+        // The window hasn't moved, so nothing is being overridden: the rule
+        // must stay free to re-assert its origin.
+        let store = PlacementHistoryStore()
+        let rule = makeRule(restoreComponents: RestoreComponents(size: false, position: true, display: true))
+        let resizedInPlace = CGRect(x: 100, y: 100, width: 1200, height: 900)
+        let window = handle(at: resizedInPlace)
+        store.record(handle: window, rule: rule, frame: target)
+
+        let suppressed = store.shouldSuppressAutoReplay(
+            rule: rule,
+            handle: window,
+            targetFrame: CGRect(origin: target.origin, size: resizedInPlace.size),
+            targetDisplay: wideDisplay(),
+            source: .auto)
+        #expect(suppressed == false)
+    }
+
+    @Test
+    func sizeWithDisplayNeverSuppresses() {
+        // Same reasoning as size-only: the size is a deliberate "always this
+        // big" choice and the origin is derived from where the window sits.
+        let store = PlacementHistoryStore()
+        let rule = makeRule(restoreComponents: RestoreComponents(size: true, position: false, display: true))
         let window = handle(at: movedAway)
         store.record(handle: window, rule: rule, frame: target)
 

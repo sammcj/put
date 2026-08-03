@@ -44,54 +44,53 @@ public enum PlacementDecision: Equatable, Sendable {
 }
 
 public enum PlacementEngine {
-    /// Why a `.displayOnly` rule produced no placement. Such a rule can only
-    /// ever move a window, never resize it, so when there's no usable current
-    /// frame to move it does nothing rather than falling back to the saved
-    /// frame - which would resize the window and break the scope's promise.
-    static let displayOnlySkipReason = "Display-only rule: window not on any connected display"
+    /// Why a rule that derives its position from the window's current one (a
+    /// display restored without a saved position) produced no placement. Such a
+    /// rule has no position of its own, so with no usable current frame it does
+    /// nothing rather than falling back to the saved origin - which would move
+    /// the window somewhere the rule never asked for.
+    static let derivedPositionSkipReason = "Display-relative rule: window not on any connected display"
+
+    /// Why a rule with no restore components at all produced no placement.
+    /// Settings keeps at least one component on, so this only arises from a
+    /// hand-edited config.
+    static let inertRuleSkipReason = "Rule restores nothing: no size, position or display selected"
 
     /// Decide where to put a window that matches `rule` given the currently
     /// connected displays. Pure function.
     ///
     /// `currentFrame` is the matched window's live frame in global AX space.
-    /// It's only consulted for `.displayOnly` rules, which derive their target
-    /// from where the window already is rather than from the saved frame; pass
-    /// nil when there is no live window (a UI preview, say) and the saved frame
-    /// is used instead.
+    /// It's consulted by rules that don't replay the saved position, which
+    /// derive their target from where the window already is; pass nil when
+    /// there is no live window (a UI preview, say) and the saved frame is used
+    /// instead where one exists.
     public static func resolve(
         rule: Rule,
         displays: [DisplayFingerprint],
         currentFrame: CGRect? = nil) -> PlacementDecision
     {
         guard !displays.isEmpty else { return .noDisplay }
+        guard !rule.restoreComponents.isEmpty else { return .skipped(reason: inertRuleSkipReason) }
 
         let match = DisplayMatcher.resolve(target: rule.targetDisplay, among: displays)
 
         if let match, match.quality <= .equivalent {
-            let targetDisplay = match.display
-            if rule.restoreScope == .displayOnly {
-                guard let moved = displayOnlyFrame(
-                    target: targetDisplay,
-                    currentFrame: currentFrame,
-                    displays: displays)
-                else { return .skipped(reason: displayOnlySkipReason) }
-                return .applyFrame(moved, on: targetDisplay, quality: match.quality, fidelity: .exact)
-            }
             // Identity matched but the panel may be at a different
             // resolution/scale than when saved (classic post-wake transient):
             // the absolute frame no longer fits, so remap proportionally and
-            // flag it so the wake-retry can correct once the display settles.
-            let sameGeometry = targetDisplay.sameGeometry(as: rule.targetDisplay)
-            let localFrame: CGRect = if sameGeometry {
-                rule.frame.absolute
-            } else {
-                Coordinates.denormalise(rule.frame.normalised, onDisplay: targetDisplay)
-            }
-            return .applyFrame(
-                Coordinates.toGlobal(localFrame, onDisplay: targetDisplay),
-                on: targetDisplay,
-                quality: match.quality,
-                fidelity: sameGeometry ? .exact : .proportional)
+            // flag it so the wake-retry can correct once the display settles. A
+            // rule that takes no geometry from the saved frame is unaffected by
+            // the panel's mode, so it stays exact.
+            let sameGeometry = match.display.sameGeometry(as: rule.targetDisplay)
+            return decide(
+                rule: rule,
+                on: Resolution(
+                    target: match.display,
+                    quality: match.quality,
+                    fidelity: sameGeometry || !rule.restoreComponents.usesSavedFrame ? .exact : .proportional,
+                    sameGeometry: sameGeometry),
+                currentFrame: currentFrame,
+                displays: displays)
         }
 
         return resolveMissing(
@@ -99,6 +98,63 @@ public enum PlacementEngine {
             displays: displays,
             currentFrame: currentFrame,
             closest: match?.display)
+    }
+
+    /// The display a rule resolved onto, and how faithfully its saved frame
+    /// carries over to it.
+    private struct Resolution {
+        let target: DisplayFingerprint
+        let quality: DisplayMatchQuality
+        let fidelity: PlacementFidelity
+        /// Whether the saved absolute frame can be replayed verbatim, or has to
+        /// be denormalised onto `target`.
+        let sameGeometry: Bool
+    }
+
+    /// Build the target frame for `rule` on an already-chosen display.
+    ///
+    /// Three shapes, by what the rule takes from the saved frame:
+    ///
+    /// - Saved position (which implies the saved display): replay it, at the
+    ///   saved size if size is on and the window's current size if not.
+    /// - Display without a saved position: keep where the window sits relative
+    ///   to the display it came from, at the saved size if size is on.
+    /// - Neither: only the size is written, so the window stays put and the
+    ///   saved frame carries the size.
+    private static func decide(
+        rule: Rule,
+        on resolution: Resolution,
+        currentFrame: CGRect?,
+        displays: [DisplayFingerprint]) -> PlacementDecision
+    {
+        let components = rule.restoreComponents
+        let target = resolution.target
+        let savedLocal = resolution.sameGeometry
+            ? rule.frame.absolute
+            : Coordinates.denormalise(rule.frame.normalised, onDisplay: target)
+        let saved = Coordinates.toGlobal(savedLocal, onDisplay: target)
+
+        func apply(_ frame: CGRect) -> PlacementDecision {
+            .applyFrame(frame, on: target, quality: resolution.quality, fidelity: resolution.fidelity)
+        }
+
+        if components.position {
+            return apply(components.size
+                ? saved
+                : CGRect(origin: saved.origin, size: currentFrame?.size ?? saved.size))
+        }
+
+        if components.display {
+            guard let moved = derivedFrame(
+                target: target,
+                currentFrame: currentFrame,
+                resizedTo: components.size ? saved.size : nil,
+                displays: displays)
+            else { return .skipped(reason: derivedPositionSkipReason) }
+            return apply(moved)
+        }
+
+        return apply(saved)
     }
 
     /// The rule's target display isn't connected; apply its
@@ -128,18 +184,18 @@ public enum PlacementEngine {
             } else {
                 return .noDisplay
             }
-            if rule.restoreScope == .displayOnly {
-                guard let moved = displayOnlyFrame(
+            // The panel is a substitute, so every frame derived from it is a
+            // guess: proportional regardless of which components are on, and
+            // the saved absolute frame belongs to a different panel.
+            return decide(
+                rule: rule,
+                on: Resolution(
                     target: fallback,
-                    currentFrame: currentFrame,
-                    displays: displays)
-                else { return .skipped(reason: displayOnlySkipReason) }
-                return .applyFrame(moved, on: fallback, quality: quality, fidelity: .proportional)
-            }
-            let global = Coordinates.toGlobal(
-                Coordinates.denormalise(rule.frame.normalised, onDisplay: fallback),
-                onDisplay: fallback)
-            return .applyFrame(global, on: fallback, quality: quality, fidelity: .proportional)
+                    quality: quality,
+                    fidelity: .proportional,
+                    sameGeometry: false),
+                currentFrame: currentFrame,
+                displays: displays)
 
         case .skip:
             return .skipped(reason: "Target display \(rule.targetDisplay.id) not connected")
@@ -149,8 +205,9 @@ public enum PlacementEngine {
         }
     }
 
-    /// Target frame for a `.displayOnly` rule: the window's current size and
-    /// proportional position, translated onto `target`.
+    /// Target frame for a rule that restores a display but no saved position:
+    /// the window's proportional position translated onto `target`, at its
+    /// current size unless `resizedTo` supplies the rule's saved one.
     ///
     /// Returns nil when the window can't be attributed to a display it is
     /// genuinely on - no live frame was passed, the frame is non-finite, or it
@@ -160,16 +217,17 @@ public enum PlacementEngine {
     /// because translating *from* a display the window isn't on invents an
     /// origin. A failed AX read yields `CGRect.zero`, which would otherwise map
     /// to the target's top-left corner.
-    private static func displayOnlyFrame(
+    private static func derivedFrame(
         target: DisplayFingerprint,
         currentFrame: CGRect?,
+        resizedTo newSize: CGSize?,
         displays: [DisplayFingerprint]) -> CGRect?
     {
         guard let currentFrame,
               let source = Coordinates.displayContaining(currentFrame, among: displays),
               overlaps(currentFrame, source)
         else { return nil }
-        return Coordinates.moving(currentFrame, onto: target, from: source)
+        return Coordinates.moving(currentFrame, onto: target, from: source, resizedTo: newSize)
     }
 
     /// Whether `frame` covers a positive area of `display`. Mirrors the
@@ -197,7 +255,7 @@ public enum PlacementEngine {
         globalFrame: CGRect,
         displays: [DisplayFingerprint],
         defaultMissingDisplayPolicy: MissingDisplayPolicy = .primaryProportional,
-        restoreScope: RestoreScope = .sizeAndPosition) -> Rule?
+        restoreComponents: RestoreComponents = .sizeAndPosition) -> Rule?
     {
         guard let display = Coordinates.displayContaining(globalFrame, among: displays) else {
             return nil
@@ -211,6 +269,6 @@ public enum PlacementEngine {
             targetDisplay: display,
             frame: frame,
             missingDisplayPolicy: defaultMissingDisplayPolicy,
-            restoreScope: restoreScope)
+            restoreComponents: restoreComponents)
     }
 }

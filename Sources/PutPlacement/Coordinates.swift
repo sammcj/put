@@ -73,20 +73,25 @@ public enum Coordinates {
         return CGRect(x: frame.minX, y: visibleTopY, width: frame.width, height: frame.height)
     }
 
-    /// Move a global-AX frame from `source` onto `target` without resizing it,
-    /// which is what a `.displayOnly` rule asserts.
+    /// Move a global-AX frame from `source` onto `target`, keeping its size
+    /// unless `resizedTo` supplies a new one. This is how a rule that restores
+    /// a display without a saved position derives its target.
     ///
     /// `source` and `target` must come from the same `DisplayProbe` snapshot -
     /// the same-display check below is whole-struct equality, so fingerprints
     /// taken from different snapshots (different arrangement, different
     /// resolution) would compare unequal and lose the identity guarantee.
     ///
-    /// Same display in and out is the identity, returned before any other work:
-    /// a display-only rule must leave a window that is already on its target
-    /// display strictly alone, including one the user deliberately parked
-    /// hanging off an edge. That guarantee is what lets the auto-replay
-    /// suppression check skip display-only rules entirely - see
+    /// Same display in and out with no resize is the identity, returned before
+    /// any other work: a rule that restores only the display must leave a window
+    /// already on its target display strictly alone, including one the user
+    /// deliberately parked hanging off an edge. That guarantee is what lets the
+    /// auto-replay suppression check skip such rules - see
     /// `PlacementHistoryStore.shouldSuppressAutoReplay`.
+    ///
+    /// A same-display *resize* keeps the window's origin but still clamps, since
+    /// growing a window near an edge would otherwise push it off the panel
+    /// entirely - the rule asked for a size, not for the window to leave.
     ///
     /// Across displays it's the window's *centre* that maps proportionally: a
     /// window centred 30% across and 40% down `source` ends up centred 30%
@@ -103,13 +108,21 @@ public enum Coordinates {
     /// The result is clamped so the window sits fully within the target -
     /// otherwise a window near the edge of a wide panel would hang off a narrow
     /// one. A window larger than the target on an axis is pinned to that edge
-    /// rather than shrunk; not resizing is the whole point of the scope.
+    /// rather than shrunk: the only size this applies is the one the caller
+    /// asked for.
     public static func moving(
         _ global: CGRect,
         onto target: DisplayFingerprint,
-        from source: DisplayFingerprint) -> CGRect
+        from source: DisplayFingerprint,
+        resizedTo newSize: CGSize? = nil) -> CGRect
     {
-        guard source != target else { return global }
+        let size = newSize ?? global.size
+        if source == target {
+            guard size != global.size else { return global }
+            return clampedOnto(target, origin: CGPoint(
+                x: global.minX - target.globalOrigin.x,
+                y: global.minY - target.globalOrigin.y), size: size)
+        }
 
         let sourceWidth = max(source.pointSize.width, 1)
         let sourceHeight = max(source.pointSize.height, 1)
@@ -122,14 +135,23 @@ public enum Coordinates {
             x: localCentre.x * target.pointSize.width / sourceWidth,
             y: localCentre.y * target.pointSize.height / sourceHeight)
         let mappedOrigin = CGPoint(
-            x: mappedCentre.x - global.size.width / 2,
-            y: mappedCentre.y - global.size.height / 2)
+            x: mappedCentre.x - size.width / 2,
+            y: mappedCentre.y - size.height / 2)
 
+        return clampedOnto(target, origin: mappedOrigin, size: size)
+    }
+
+    /// Place `size` at a display-local `origin`, clamped so the window sits
+    /// fully within `target`, and convert back to global AX space.
+    private static func clampedOnto(
+        _ target: DisplayFingerprint,
+        origin: CGPoint,
+        size: CGSize) -> CGRect
+    {
         let clamped = CGPoint(
-            x: clamp(mappedOrigin.x, upperBound: target.pointSize.width - global.size.width),
-            y: clamp(mappedOrigin.y, upperBound: target.pointSize.height - global.size.height))
-
-        return CGRect(origin: clamped, size: global.size)
+            x: clamp(origin.x, upperBound: target.pointSize.width - size.width),
+            y: clamp(origin.y, upperBound: target.pointSize.height - size.height))
+        return CGRect(origin: clamped, size: size)
             .offsetBy(dx: target.globalOrigin.x, dy: target.globalOrigin.y)
     }
 

@@ -224,7 +224,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowLifecycle {
             saveFocusedWindowTitleOnly: { [coordinator] in Task { await coordinator?.saveFocusedWindowTitleOnly() } },
             restoreActiveWindow: { [coordinator] in Task { await coordinator?.restoreActiveWindow() } },
             saveAllWindows: { [coordinator] in Task { await coordinator?.saveAllWindows() } },
-            restoreAllWindows: { [coordinator] in Task { await coordinator?.restoreAllWindows() } }))
+            restoreAllWindows: { [coordinator] in
+                Task { await coordinator?.restoreAllWindows(source: .explicitAll) }
+            }))
 
         layoutHotkeys = LayoutHotkeys()
         layoutHotkeys.bind { [weak self] layoutID in
@@ -329,7 +331,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowLifecycle {
         state.config.activeLayoutID = id
         persister.scheduleWrite()
         log.info("Layout activated via hotkey: \(id.uuidString, privacy: .public)")
-        await coordinator.restoreAllWindows()
+        // `.explicit`, not `.explicitAll`: the user picked this layout, and a
+        // layout that silently omitted a window it visibly contains would be
+        // unexplainable from the Layouts tab. Screen-config activation is the
+        // automatic path and goes through `.auto`.
+        await coordinator.restoreAllWindows(source: .explicit)
     }
 
     /// Screen-config-trigger driven layout switch. Mirrors the hotkey-driven

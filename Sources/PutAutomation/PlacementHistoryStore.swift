@@ -66,13 +66,18 @@ final class PlacementHistoryStore {
     }
 
     /// Whether an `.auto` replay of `rule` should be suppressed because the user
-    /// moved or resized the window away from where Put last placed it. Only
-    /// `.sizeAndPosition` rules suppress, because only they write a full target
-    /// frame for the moved-by-user check to compare against. Size-only rules are
-    /// a deliberate "force this size" choice; display-only rules recompute their
-    /// target from the window's current frame, so a window already on the right
-    /// display resolves to a no-op and needs no suppression. The caller gates
-    /// this on `autoTriggers.respectManualMoves`, so it isn't a parameter here.
+    /// moved the window away from where Put last placed it.
+    ///
+    /// Only rules restoring a saved position suppress, because only they assert
+    /// an origin the check can compare against. A rule that forces a size is a
+    /// deliberate "always this big" choice, and one deriving its position from
+    /// the window's current frame resolves to a no-op when the window is already
+    /// on the right display, so neither needs suppression.
+    ///
+    /// The comparison narrows to the origin when the rule doesn't restore size,
+    /// since the window's size is then whatever the user last made it. The
+    /// caller gates this on `autoTriggers.respectManualMoves`, so it isn't a
+    /// parameter here.
     func shouldSuppressAutoReplay(
         rule: Rule,
         handle: WindowHandle,
@@ -80,14 +85,13 @@ final class PlacementHistoryStore {
         targetDisplay: DisplayFingerprint,
         source: RestoreSource) -> Bool
     {
-        guard source == .auto, rule.restoreScope == .sizeAndPosition else {
-            return false
-        }
+        guard source == .auto, rule.restoreComponents.position else { return false }
         return PlacementHistory.shouldSkipReplay(
             record: records[handle.identity],
             currentFrame: handle.descriptor.frame,
             nextRuleID: rule.id,
             nextTargetFrame: targetFrame,
-            targetDisplayBounds: CGRect(origin: targetDisplay.globalOrigin, size: targetDisplay.pointSize))
+            targetDisplayBounds: CGRect(origin: targetDisplay.globalOrigin, size: targetDisplay.pointSize),
+            comparing: rule.restoreComponents.size ? .wholeFrame : .originOnly)
     }
 }

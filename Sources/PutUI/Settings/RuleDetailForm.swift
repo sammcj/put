@@ -75,6 +75,25 @@ struct RuleDetailForm: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                Toggle("Automatic placement", isOn: $rule.autoPlace)
+                    .help(
+                        "Place this window when displays change, on wake, when the app launches, "
+                            + "when Put itself launches, and when a layout activates from a "
+                            + "screen-configuration match.")
+                Toggle("Restore-all hotkey", isOn: $rule.includeInRestoreAll)
+                    .help("Include this window when the restore-all hotkey or menu item runs.")
+            } header: {
+                Text("Apply on")
+            } footer: {
+                Text(
+                    "The active-window hotkey, the per-app menu actions and a layout activated "
+                        + "by its own hotkey always apply this rule. Turn both of these off to "
+                        + "keep the saved placement without the window ever moving on its own.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Missing-display behaviour") {
                 Picker("", selection: $rule.missingDisplayPolicy) {
                     Text("Fallback to primary, proportional").tag(MissingDisplayPolicy.primaryProportional)

@@ -21,7 +21,7 @@ struct RulePlacementForm: View {
 
     private var savedPlacementBox: some View {
         GroupBox("Saved placement") {
-            scopePicker
+            componentToggles
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow {
                     Text("Display")
@@ -35,7 +35,7 @@ struct RulePlacementForm: View {
                     .gridCellColumns(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if rule.restoreScope == .sizeAndPosition {
+                if rule.restoreComponents.position {
                     GridRow {
                         Text("X").foregroundStyle(.secondary)
                         TextField("", value: frameBinding(\.origin.x), format: .number)
@@ -43,7 +43,7 @@ struct RulePlacementForm: View {
                         TextField("", value: frameBinding(\.origin.y), format: .number)
                     }
                 }
-                if rule.restoreScope.restoresSize {
+                if rule.restoreComponents.size {
                     GridRow {
                         Text("Width").foregroundStyle(.secondary)
                         TextField("", value: frameBinding(\.size.width), format: .number)
@@ -54,7 +54,7 @@ struct RulePlacementForm: View {
             }
             .textFieldStyle(.roundedBorder)
             .padding(.vertical, 4)
-            Text(Self.placementCaption(for: rule.restoreScope))
+            Text(Self.placementCaption(for: rule.restoreComponents))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.top, 4)
@@ -63,31 +63,69 @@ struct RulePlacementForm: View {
     }
 
     /// Which parts of the saved frame this rule re-asserts. The frame itself is
-    /// always kept in full, so narrowing the scope and widening it again later
-    /// doesn't lose the saved coordinates.
-    private var scopePicker: some View {
-        Picker("Restore", selection: $rule.restoreScope) {
-            Text("Size and position").tag(RestoreScope.sizeAndPosition)
-            Text("Size only").tag(RestoreScope.sizeOnly)
-            Text("Display only").tag(RestoreScope.displayOnly)
+    /// always kept in full, so turning one off and on again later doesn't lose
+    /// the saved coordinates.
+    ///
+    /// Position implies display, so the display toggle is disabled while
+    /// position is on. Whichever toggle is the last one standing is disabled
+    /// too: a rule that restores nothing has no meaning that `Enabled` doesn't
+    /// already cover.
+    private var componentToggles: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("Restore")
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Size", isOn: $rule.restoreComponents.size)
+                    .disabled(Self.isLastComponent(\.size, of: rule.restoreComponents))
+                    .help("Resize the window to its saved width and height.")
+                Toggle("Position", isOn: $rule.restoreComponents.position)
+                    .help("Put the window back at its saved coordinates. Turns the display on with it.")
+                Toggle("Display", isOn: $rule.restoreComponents.display)
+                    .disabled(
+                        rule.restoreComponents.position
+                            || Self.isLastComponent(\.display, of: rule.restoreComponents))
+                    .help(
+                        rule.restoreComponents.position
+                            ? "Always on while position is on: the saved coordinates are relative to this display."
+                            : "Move the window onto this display, keeping its position proportionally.")
+            }
         }
-        .pickerStyle(.radioGroup)
+        .toggleStyle(.checkbox)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.bottom, 4)
     }
 
-    /// Explains what the chosen scope does at restore time.
-    static func placementCaption(for scope: RestoreScope) -> String {
-        switch scope {
-        case .sizeAndPosition:
-            "Coordinates are in points, relative to the saved display's top-left."
-        case .sizeOnly:
-            "Width and height are in points. Position is left as-is at restore time."
-        case .displayOnly:
+    /// Whether `component` is the only one left on, so turning it off would
+    /// leave the rule restoring nothing.
+    static func isLastComponent(
+        _ component: WritableKeyPath<RestoreComponents, Bool>,
+        of components: RestoreComponents) -> Bool
+    {
+        guard components[keyPath: component] else { return false }
+        var without = components
+        without[keyPath: component] = false
+        return without.isEmpty
+    }
+
+    /// Explains what the chosen components do at restore time.
+    static func placementCaption(for components: RestoreComponents) -> String {
+        switch (components.size, components.position, components.display) {
+        case (true, true, _):
+            "Coordinates and size are in points, relative to the saved display's top-left."
+        case (false, true, _):
+            "The window is moved to the saved coordinates on this display at its current size. "
+                + "Nothing is resized."
+        case (true, false, true):
+            "The window is moved to this display and resized, keeping roughly where it sat on "
+                + "the display it came from - centred if it filled that display."
+        case (false, false, true):
             "The window is moved to this display at its current size, keeping "
                 + "roughly where it sat on the display it came from - centred if it "
                 + "filled that display. Nothing is resized, and a window already on "
                 + "this display is left alone."
+        case (true, false, false):
+            "Width and height are in points. Position is left as-is at restore time."
+        case (false, false, false):
+            "Nothing is restored. Turn on size, position or display."
         }
     }
 

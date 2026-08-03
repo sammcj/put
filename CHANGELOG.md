@@ -9,6 +9,33 @@ Changelog; versions use SemVer.
 
 ## [Unreleased]
 
+### Added
+
+- Per-rule control over which triggers place a window. `Automatic placement`
+  covers display changes, wake, app launch, Put's own launch and screen-config
+  layout activation; `Restore-all hotkey` covers the restore-all hotkey and menu
+  item. With both off the placement stays saved and only applies when you name
+  the window: the active-window hotkey, the per-app menu actions, or a layout
+  hotkey.
+
+### Changed
+
+- The saved placement `Restore` radio (size and position / size only / display
+  only) is now three independent toggles: size, position, display. That unlocks
+  combinations the radio could not express, notably size on a target display
+  (move the window across and resize it, keeping roughly where it sat) and a
+  saved position without a saved size. Position implies display, so the display
+  toggle is held on while position is on. Existing rules migrate to the
+  equivalent toggles with no change in behaviour, and configs written by this
+  build still open in an older one.
+- The rule preview only draws a window rect when the rule restores a saved
+  position. A size-only rule used to draw one at the saved coordinates, which it
+  never applies - the window stays where it stands.
+- An app launching no longer schedules a restore pass when the only rules
+  matching it are disabled or opted out of automatic placement. The retry loop
+  used to sleep and snapshot its way through the full backoff for a pass that
+  could only ever report no-match.
+
 ## [0.2.5] - 2026-07-30
 
 ### Fixed

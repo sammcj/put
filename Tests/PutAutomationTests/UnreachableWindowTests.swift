@@ -31,7 +31,7 @@ struct UnreachableWindowTests {
         bundleID: String,
         label: String = "",
         isEnabled: Bool = true,
-        restoreScope: RestoreScope = .sizeAndPosition) -> Rule
+        restoreComponents: RestoreComponents = .sizeAndPosition) -> Rule
     {
         Rule(
             descriptiveLabel: label,
@@ -51,7 +51,7 @@ struct UnreachableWindowTests {
                 absolute: CGRect(x: 0, y: 0, width: 400, height: 300),
                 normalised: UnitRect(x: 0, y: 0, width: 0.3, height: 0.3)),
             isEnabled: isEnabled,
-            restoreScope: restoreScope)
+            restoreComponents: restoreComponents)
     }
 
     private func layout(_ rules: [Rule]) -> Layout {
@@ -111,7 +111,7 @@ struct UnreachableWindowTests {
     @Test("Disabled or size-only rules are not flagged")
     func disabledAndSizeOnlyIgnored() {
         let disabled = rule(bundleID: "com.apple.iCal", isEnabled: false)
-        let sizeOnly = rule(bundleID: "com.apple.Music", restoreScope: .sizeOnly)
+        let sizeOnly = rule(bundleID: "com.apple.Music", restoreComponents: .sizeOnly)
         let result = ActionCoordinator.unreachableRules(
             in: layout([disabled, sizeOnly]),
             snapshot: [],
@@ -122,7 +122,7 @@ struct UnreachableWindowTests {
 
     @Test("Display-only rules are flagged: they still move the window")
     func displayOnlyFlagged() {
-        let subject = rule(bundleID: "com.apple.Music", restoreScope: .displayOnly)
+        let subject = rule(bundleID: "com.apple.Music", restoreComponents: .displayOnly)
         let result = ActionCoordinator.unreachableRules(
             in: layout([subject]),
             snapshot: [],

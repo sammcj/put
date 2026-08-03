@@ -52,7 +52,7 @@ public extension ActionCoordinator {
         var seenBundles: Set<String> = []
         var result: [UnreachableWindow] = []
         for rule in layout.rules {
-            guard rule.isEnabled, rule.restoreScope.restoresPosition else { continue }
+            guard rule.isEnabled, rule.restoreComponents.movesWindow else { continue }
             let bundleID = rule.matchCriteria.bundleID
             guard runningBundleIDs.contains(bundleID) else { continue }
             // The window exists elsewhere (not closed) and isn't reachable here.
