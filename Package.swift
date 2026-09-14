@@ -41,7 +41,7 @@ let package = Package(
             path: "Sources/PutHotkeys"),
         .target(
             name: "PutAutomation",
-            dependencies: ["PutCore", "PutDisplay", "PutWindows", "PutPlacement"],
+            dependencies: ["PutCore", "PutStorage", "PutDisplay", "PutWindows", "PutPlacement"],
             path: "Sources/PutAutomation"),
         .target(
             name: "PutUI",

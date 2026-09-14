@@ -370,7 +370,7 @@ private struct OnboardingAccessibilityStepView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 Text(
-                    "Manage or revoke this permission at any time under System Settings → Privacy & Security → Accessibility.")
+                    "Manage or revoke this permission at any time under System Settings → Privacy & Security → Device Control and Data Access (called Accessibility before macOS 27).")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)

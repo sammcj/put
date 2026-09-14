@@ -20,6 +20,8 @@ Changelog; versions use SemVer.
 
 ### Changed
 
+- Onboarding now names the macOS 27 privacy pane, "Device Control and Data Access", where Put's permission lives (it was "Accessibility" on macOS 26).
+- `PutAutomation` declares its `PutStorage` dependency in `Package.swift`; the Swift 6.4 dependency scanner in Xcode 27 warned about the missing declaration.
 - The saved placement `Restore` radio (size and position / size only / display
   only) is now three independent toggles: size, position, display. That unlocks
   combinations the radio could not express, notably size on a target display
