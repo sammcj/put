@@ -9,6 +9,11 @@ BUILD_DIR := .build
 CONFIG ?= release
 BIN_DIR := $(BUILD_DIR)/$(CONFIG)
 BINARY := $(BIN_DIR)/$(APP_NAME)
+# SwiftPM resource bundles that must ship inside the .app. KeyboardShortcuts
+# resolves its localised strings via Bundle.module, which fatalErrors when the
+# bundle is missing from Contents/Resources - every settings tab that renders a
+# shortcut recorder crashed in a DMG install until this was copied in.
+RESOURCE_BUNDLES := $(BIN_DIR)/KeyboardShortcuts_KeyboardShortcuts.bundle
 VERSION := $(shell cat VERSION | tr -d '[:space:]')
 BUILD_NUMBER := $(shell date -u +%Y%m%d%H%M)
 YEAR := $(shell date +%Y)
@@ -86,10 +91,14 @@ bundle: build icon $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME) sign
 # it, bumping the version alone leaves every prerequisite older than the target,
 # so make skips the recipe and the bundle keeps the previous
 # CFBundleShortVersionString while the DMG filename carries the new one.
-$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME): $(BINARY) Resources/Info.plist.tmpl Resources/Put.entitlements THIRD-PARTY-NOTICES.md VERSION
+$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME): $(BINARY) $(RESOURCE_BUNDLES) Resources/Info.plist.tmpl Resources/Put.entitlements THIRD-PARTY-NOTICES.md VERSION
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	@mkdir -p $(APP_BUNDLE)/Contents/Resources
 	cp $(BINARY) $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
+	for b in $(RESOURCE_BUNDLES); do \
+		rm -rf "$(APP_BUNDLE)/Contents/Resources/$$(basename "$$b")"; \
+		cp -R "$$b" "$(APP_BUNDLE)/Contents/Resources/"; \
+	done
 	@# MIT requires its notice ship with the binary, not only in the repo.
 	cp THIRD-PARTY-NOTICES.md $(APP_BUNDLE)/Contents/Resources/THIRD-PARTY-NOTICES.md
 	sed -e 's/__VERSION__/$(VERSION)/g' \
@@ -112,6 +121,12 @@ sign: $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
 	else \
 		echo "Signing with: $(CODESIGN_IDENTITY)"; \
 	fi
+	@# Nested bundles first: the outer signature seals them, so they must not
+	@# change afterwards, and notarisation rejects unsigned nested bundles.
+	for b in $(APP_BUNDLE)/Contents/Resources/*.bundle; do \
+		[ -d "$$b" ] || continue; \
+		codesign --force --sign "$(CODESIGN_IDENTITY)" --timestamp=none "$$b"; \
+	done
 	codesign --force \
 		--sign "$(CODESIGN_IDENTITY)" \
 		--identifier "$(BUNDLE_ID)" \
@@ -383,6 +398,10 @@ notarise: bundle
 		*) echo "ERROR: '$$IDENTITY' is not a Developer ID Application cert."; exit 1;; \
 	esac; \
 	echo "Signing: $$IDENTITY"; \
+	for b in $(APP_BUNDLE)/Contents/Resources/*.bundle; do \
+		[ -d "$$b" ] || continue; \
+		codesign --force --sign "$$IDENTITY" --timestamp "$$b"; \
+	done; \
 	codesign --force \
 		--sign "$$IDENTITY" \
 		--identifier "$(BUNDLE_ID)" \

@@ -42,6 +42,7 @@ Changelog; versions use SemVer.
 
 ### Fixed
 
+- Opening the Hotkeys or Layouts settings tab crashed a DMG install with `unable to find bundle named KeyboardShortcuts_KeyboardShortcuts`. The Makefile never copied the package's localisation bundle into `Contents/Resources`; it now ships and signs it alongside the binary.
 - `screensDidWakeTriggersRestore` asserted exactly one restore after posting to
   `NSWorkspace.shared.notificationCenter`. That bus is shared with the OS, so a
   real wake or unlock on the host delivered a second event and failed the test
