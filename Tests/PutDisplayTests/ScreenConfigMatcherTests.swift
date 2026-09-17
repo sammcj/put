@@ -55,13 +55,13 @@ struct ScreenConfigMatcherTests {
         let primary = makeFingerprint(uuid: UUID(), origin: .zero, isPrimary: true)
         let secondary = makeFingerprint(uuid: UUID(), origin: CGPoint(x: 1920, y: 0))
         let trigger = ScreenConfigTrigger(
-            displays: [primary, secondary],
-            arrangementStrict: false)
-        #expect(ScreenConfigMatcher.evaluate(trigger: trigger, against: [secondary, primary]) == .matched)
+            displays: [primary, secondary])
+        #expect(ScreenConfigMatcher
+            .evaluate(trigger: trigger, against: [secondary, primary]) == .matched(arrangementAligned: true))
     }
 
     @Test
-    func arrangementStrictRejectsRearrangedDisplays() {
+    func rearrangedDisplaysMatchWithArrangementFlagCleared() {
         let aID = UUID()
         let bID = UUID()
         let capturedA = makeFingerprint(uuid: aID, origin: .zero)
@@ -69,12 +69,13 @@ struct ScreenConfigMatcherTests {
         let liveA = makeFingerprint(uuid: aID, origin: .zero)
         let liveB = makeFingerprint(uuid: bID, origin: CGPoint(x: -1920, y: 0))
 
-        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB], arrangementStrict: true)
-        #expect(ScreenConfigMatcher.evaluate(trigger: trigger, against: [liveA, liveB]) == .noMatch)
+        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB])
+        #expect(ScreenConfigMatcher
+            .evaluate(trigger: trigger, against: [liveA, liveB]) == .matched(arrangementAligned: false))
     }
 
     @Test
-    func arrangementStrictAcceptsTranslatedButRelativelyIdenticalArrangement() {
+    func translatedButRelativelyIdenticalArrangementIsAligned() {
         // The whole display set has shifted by a constant offset (e.g. macOS
         // re-anchored after primary changed). Relative positions still match,
         // so the trigger should fire.
@@ -85,12 +86,13 @@ struct ScreenConfigMatcherTests {
         let liveA = makeFingerprint(uuid: aID, origin: CGPoint(x: 100, y: 200))
         let liveB = makeFingerprint(uuid: bID, origin: CGPoint(x: 2020, y: 200))
 
-        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB], arrangementStrict: true)
-        #expect(ScreenConfigMatcher.evaluate(trigger: trigger, against: [liveA, liveB]) == .matched)
+        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB])
+        #expect(ScreenConfigMatcher
+            .evaluate(trigger: trigger, against: [liveA, liveB]) == .matched(arrangementAligned: true))
     }
 
     @Test
-    func arrangementLooseAcceptsRearrangedDisplays() {
+    func rearrangedDisplaysStillMatchByIdentity() {
         let aID = UUID()
         let bID = UUID()
         let capturedA = makeFingerprint(uuid: aID, origin: .zero)
@@ -98,8 +100,9 @@ struct ScreenConfigMatcherTests {
         let liveA = makeFingerprint(uuid: aID, origin: .zero)
         let liveB = makeFingerprint(uuid: bID, origin: CGPoint(x: -1920, y: 0))
 
-        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB], arrangementStrict: false)
-        #expect(ScreenConfigMatcher.evaluate(trigger: trigger, against: [liveA, liveB]) == .matched)
+        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB])
+        #expect(ScreenConfigMatcher
+            .evaluate(trigger: trigger, against: [liveA, liveB]) == .matched(arrangementAligned: false))
     }
 
     @Test
@@ -112,7 +115,7 @@ struct ScreenConfigMatcherTests {
         let captured = [makeFingerprint(uuid: aID), makeFingerprint(uuid: bID)]
         let live = captured + [makeFingerprint(uuid: UUID())]
 
-        let trigger = ScreenConfigTrigger(displays: captured, arrangementStrict: false)
+        let trigger = ScreenConfigTrigger(displays: captured)
         #expect(ScreenConfigMatcher.evaluate(trigger: trigger, against: live) == .noMatch)
     }
 
@@ -138,8 +141,8 @@ struct ScreenConfigMatcherTests {
             scaleFactor: 2,
             globalOrigin: .zero,
             isPrimary: true)
-        let trigger = ScreenConfigTrigger(displays: [captured], arrangementStrict: true)
-        #expect(ScreenConfigMatcher.evaluate(trigger: trigger, against: [live]) == .matched)
+        let trigger = ScreenConfigTrigger(displays: [captured])
+        #expect(ScreenConfigMatcher.evaluate(trigger: trigger, against: [live]) == .matched(arrangementAligned: true))
     }
 
     @Test
@@ -152,8 +155,9 @@ struct ScreenConfigMatcherTests {
         let capturedB = makeTwin(origin: CGPoint(x: 1920, y: 0))
         let liveA = makeTwin(origin: .zero, isPrimary: true)
         let liveB = makeTwin(origin: CGPoint(x: 1920, y: 0))
-        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB], arrangementStrict: false)
-        #expect(ScreenConfigMatcher.evaluate(trigger: trigger, against: [liveA, liveB]) == .matched)
+        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB])
+        #expect(ScreenConfigMatcher
+            .evaluate(trigger: trigger, against: [liveA, liveB]) == .matched(arrangementAligned: true))
     }
 
     @Test
@@ -166,7 +170,8 @@ struct ScreenConfigMatcherTests {
         let capturedB = makeTwin(origin: CGPoint(x: 1920, y: 0))
         let liveRight = makeTwin(origin: CGPoint(x: 1920, y: 0))
         let liveLeft = makeTwin(origin: .zero, isPrimary: true)
-        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB], arrangementStrict: true)
-        #expect(ScreenConfigMatcher.evaluate(trigger: trigger, against: [liveRight, liveLeft]) == .matched)
+        let trigger = ScreenConfigTrigger(displays: [capturedA, capturedB])
+        #expect(ScreenConfigMatcher
+            .evaluate(trigger: trigger, against: [liveRight, liveLeft]) == .matched(arrangementAligned: true))
     }
 }

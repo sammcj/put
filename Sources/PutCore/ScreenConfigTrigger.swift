@@ -7,10 +7,6 @@ import Foundation
 public struct ScreenConfigTrigger: Codable, Hashable, Sendable {
     /// Snapshot of the displays present when the user captured this trigger.
     public var displays: [DisplayFingerprint]
-    /// When true, the matcher also requires the arrangement (relative
-    /// `globalOrigin` of each display) to match. When false, identity-set
-    /// match is sufficient. UI default is `true`.
-    public var arrangementStrict: Bool
     /// When true, a successful match auto-activates the owning layout
     /// (set active + restore-all). When false, the trigger is captured for
     /// reference only; the user must press the layout's hotkey to activate.
@@ -20,30 +16,30 @@ public struct ScreenConfigTrigger: Codable, Hashable, Sendable {
 
     public init(
         displays: [DisplayFingerprint],
-        arrangementStrict: Bool = true,
         autoActivate: Bool = true,
         capturedAt: Date = Date())
     {
         self.displays = displays
-        self.arrangementStrict = arrangementStrict
         self.autoActivate = autoActivate
         self.capturedAt = capturedAt
     }
 
     /// Tolerant decoder. Older configs that predate this trigger never write
     /// the field at all, but a future addition (e.g. a new flag) shouldn't
-    /// fail decoding for documents written before it existed.
+    /// fail decoding for documents written before it existed. Removed fields
+    /// (`arrangementStrict`) are ignored on read: macOS reshuffles the
+    /// built-in display's offset on every replug, so a strict arrangement
+    /// gate never matched again and only produced silent non-activation.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         displays = try container.decode([DisplayFingerprint].self, forKey: .displays)
-        arrangementStrict = try container.decodeIfPresent(Bool.self, forKey: .arrangementStrict) ?? true
         autoActivate = try container.decodeIfPresent(Bool.self, forKey: .autoActivate) ?? true
         capturedAt = try container.decodeIfPresent(Date.self, forKey: .capturedAt) ?? Date()
     }
 
     /// Display identity set. Two triggers describe the same physical
-    /// arrangement when their identity keys are equal, regardless of
-    /// arrangement-strict / auto-activate flags or capture time. Used to keep
+    /// arrangement when their identity keys are equal, regardless of the
+    /// auto-activate flag or capture time. Used to keep
     /// a configuration claimed by at most one layout and to dedupe within a
     /// layout.
     public var identityKey: Set<String> {

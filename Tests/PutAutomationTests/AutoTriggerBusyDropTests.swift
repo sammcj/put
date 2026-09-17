@@ -171,7 +171,7 @@ struct AutoTriggerBusyDropTests {
         config.autoTriggers = AutoTriggerSettings(
             onDisplayChange: true, onAppLaunch: false, onWake: false, onPutLaunch: false)
         let base = PutCore.Layout(name: "Base")
-        let trigger = ScreenConfigTrigger(displays: displays, arrangementStrict: true, autoActivate: true)
+        let trigger = ScreenConfigTrigger(displays: displays, autoActivate: true)
         let docked = PutCore.Layout(name: "Docked", screenConfigs: [trigger])
         config.layouts = [base, docked]
         config.activeLayoutID = base.id
@@ -213,7 +213,7 @@ struct AutoTriggerBusyDropTests {
         config.autoTriggers = AutoTriggerSettings(
             onDisplayChange: true, onAppLaunch: false, onWake: false, onPutLaunch: false)
         let base = PutCore.Layout(name: "Base")
-        let trigger = ScreenConfigTrigger(displays: displays, arrangementStrict: true, autoActivate: true)
+        let trigger = ScreenConfigTrigger(displays: displays, autoActivate: true)
         let docked = PutCore.Layout(name: "Docked", screenConfigs: [trigger])
         config.layouts = [base, docked]
         config.activeLayoutID = base.id
@@ -253,7 +253,7 @@ struct AutoTriggerBusyDropTests {
         config.autoTriggers = AutoTriggerSettings(
             onDisplayChange: true, onAppLaunch: false, onWake: false, onPutLaunch: false)
         let base = PutCore.Layout(name: "Base")
-        let trigger = ScreenConfigTrigger(displays: displays, arrangementStrict: true, autoActivate: true)
+        let trigger = ScreenConfigTrigger(displays: displays, autoActivate: true)
         let docked = PutCore.Layout(name: "Docked", screenConfigs: [trigger])
         let userChoice = PutCore.Layout(name: "UserChoice")
         config.layouts = [base, docked, userChoice]

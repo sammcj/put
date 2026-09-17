@@ -20,6 +20,7 @@ Changelog; versions use SemVer.
 
 ### Changed
 
+- Screen-config layout triggers now match on display identity alone. The "Match arrangement exactly" toggle is gone: macOS assigns the built-in display a different offset relative to an external monitor on every replug, so a strict capture never matched again and the layout silently stayed on whatever was active before (often the single-display one, which then dragged every window onto the laptop screen). A match whose captured arrangement differs is logged at notice level under `automation.triggers`. Existing configs still load; the old field is ignored.
 - Onboarding now names the macOS 27 privacy pane, "Device Control and Data Access", where Put's permission lives (it was "Accessibility" on macOS 26).
 - `PutAutomation` declares its `PutStorage` dependency in `Package.swift`; the Swift 6.4 dependency scanner in Xcode 27 warned about the missing declaration.
 - The saved placement `Restore` radio (size and position / size only / display

@@ -689,6 +689,13 @@ extension AutoTriggerController {
         }
 
         let layoutID = match.layoutID.uuidString
+        if !match.arrangementAligned {
+            // Expected after a replug: macOS hands the built-in display a new
+            // offset each time. Rules are stored display-local, so placement
+            // is unaffected; this is here so a near-miss is visible in the log.
+            log.notice(
+                "Layout matched by identity, arrangement differs (id=\(layoutID, privacy: .public); \(reasonList, privacy: .public))")
+        }
         guard match.autoActivate else {
             log.info(
                 "Layout trigger matched (id=\(layoutID, privacy: .public); reason=\(reasonList, privacy: .public)); autoActivate=false")

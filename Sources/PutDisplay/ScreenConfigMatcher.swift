@@ -4,13 +4,17 @@ import PutCore
 
 public enum ScreenConfigMatchOutcome: Equatable, Sendable {
     case noMatch
-    case matched
+    /// Identity set matched. `arrangementAligned` reports whether the relative
+    /// `globalOrigin` offsets also line up with the capture. It never blocks a
+    /// match: macOS assigns the built-in display a different offset on every
+    /// replug, so gating on it left layouts silently unactivated. The flag is
+    /// surfaced so the near-miss can be logged.
+    case matched(arrangementAligned: Bool)
 }
 
 /// Compares a captured `ScreenConfigTrigger` against a current display
-/// snapshot. Pure function. Identity-set match is always required; when the
-/// trigger has `arrangementStrict == true`, the relative arrangement of the
-/// matched displays must also align.
+/// snapshot. Pure function. Identity-set match decides the outcome; the
+/// arrangement comparison is informational.
 public enum ScreenConfigMatcher {
     /// Tolerance (in points) for arrangement comparisons. macOS reports
     /// display origins as integers, so anything outside a single point is a
@@ -47,8 +51,7 @@ public enum ScreenConfigMatcher {
             availableIndices.remove(at: slot)
         }
 
-        guard trigger.arrangementStrict else { return .matched }
-        return arrangementsAlign(pairs: pairs) ? .matched : .noMatch
+        return .matched(arrangementAligned: arrangementsAlign(pairs: pairs))
     }
 
     /// Compares the relative arrangement of paired displays. Subtracts the

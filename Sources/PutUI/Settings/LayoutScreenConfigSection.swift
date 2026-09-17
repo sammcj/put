@@ -99,12 +99,6 @@ struct LayoutScreenConfigSection: View {
                     get: { trigger.autoActivate },
                     set: { newValue in updateTrigger(key) { $0.autoActivate = newValue } }))
 
-            Toggle(
-                "Match arrangement exactly",
-                isOn: Binding(
-                    get: { trigger.arrangementStrict },
-                    set: { newValue in updateTrigger(key) { $0.arrangementStrict = newValue } }))
-
             Button("Remove", role: .destructive) {
                 pendingRemoval = RemovalPrompt(key: key, displays: trigger.displays)
             }

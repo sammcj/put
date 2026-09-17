@@ -83,4 +83,25 @@ struct LayoutTriggerEvaluatorTests {
         #expect(result?.layoutID == layout.id)
         #expect(result?.autoActivate == false)
     }
+
+    @Test
+    func rearrangedDisplaysStillActivateAndReportMisalignment() {
+        // macOS gives the built-in display a new offset on every replug. The
+        // layout must still fire on identity; the flag only feeds a log line.
+        let externalUUID = UUID()
+        let builtInUUID = UUID()
+        let captured = [
+            display(uuid: externalUUID),
+            display(uuid: builtInUUID, origin: CGPoint(x: -2056, y: 602))
+        ]
+        let live = [
+            display(uuid: externalUUID),
+            display(uuid: builtInUUID, origin: CGPoint(x: -2056, y: 513))
+        ]
+        let layout = Layout(name: "Home", screenConfigs: [ScreenConfigTrigger(displays: captured)])
+        let result = LayoutTriggerEvaluator.evaluate(layouts: [layout], currentDisplays: live)
+        #expect(result?.layoutID == layout.id)
+        #expect(result?.autoActivate == true)
+        #expect(result?.arrangementAligned == false)
+    }
 }

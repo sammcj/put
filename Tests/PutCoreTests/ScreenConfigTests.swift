@@ -30,9 +30,8 @@ private func makeFingerprint(
 @Suite("ScreenConfigTrigger")
 struct ScreenConfigTriggerTests {
     @Test
-    func defaultsAreStrictAndAuto() {
+    func defaultsToAutoActivate() {
         let trigger = ScreenConfigTrigger(displays: [makeFingerprint()])
-        #expect(trigger.arrangementStrict == true)
         #expect(trigger.autoActivate == true)
     }
 
@@ -43,7 +42,6 @@ struct ScreenConfigTriggerTests {
         let stamp = Date(timeIntervalSince1970: 1_700_000_000)
         let trigger = ScreenConfigTrigger(
             displays: [makeFingerprint(), makeFingerprint(uuid: UUID(), name: "Second")],
-            arrangementStrict: false,
             autoActivate: false,
             capturedAt: stamp)
         let encoder = JSONEncoder()
@@ -76,7 +74,6 @@ struct ScreenConfigTriggerTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(ScreenConfigTrigger.self, from: Data(json.utf8))
-        #expect(decoded.arrangementStrict == true)
         #expect(decoded.autoActivate == true)
         #expect(decoded.displays.count == 1)
     }
@@ -132,7 +129,7 @@ struct LayoutScreenConfigTests {
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(Layout.self, from: Data(json.utf8))
         #expect(decoded.screenConfigs.count == 1)
-        #expect(decoded.screenConfigs.first?.arrangementStrict == false)
+        #expect(decoded.screenConfigs.first?.displays.count == 1)
         #expect(decoded.screenConfigs.first?.autoActivate == false)
     }
 
@@ -142,7 +139,6 @@ struct LayoutScreenConfigTests {
         let triggerA = ScreenConfigTrigger(displays: [makeFingerprint()], capturedAt: stamp)
         let triggerB = ScreenConfigTrigger(
             displays: [makeFingerprint(uuid: UUID(), name: "Second")],
-            arrangementStrict: false,
             capturedAt: stamp)
         let layout = Layout(name: "Office", screenConfigs: [triggerA, triggerB])
         let encoder = JSONEncoder()
@@ -260,7 +256,7 @@ struct ConfigScreenConfigConflictTests {
             layouts: [claimed, unclaimed],
             activeLayoutID: claimed.id)
 
-        let candidate = ScreenConfigTrigger(displays: [display], arrangementStrict: false)
+        let candidate = ScreenConfigTrigger(displays: [display], autoActivate: false)
         let found = config.layoutClaimingScreenConfig(identicalTo: candidate, excluding: unclaimed.id)
         #expect(found?.id == claimed.id)
     }
