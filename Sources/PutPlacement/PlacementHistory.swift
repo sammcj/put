@@ -101,9 +101,10 @@ public enum PlacementHistory {
         comparing: FrameComparison = .wholeFrame,
         driftThreshold: CGFloat = defaultDriftThreshold) -> Bool
     {
-        guard let record else { return false }
-        guard record.ruleID == nextRuleID else { return false }
-        guard sameTarget(record.targetFrame, nextTargetFrame, comparing: comparing) else { return false }
+        guard let record, record.ruleID == nextRuleID, sameTarget(
+            record.targetFrame,
+            nextTargetFrame,
+            comparing: comparing) else { return false }
         if let bounds = targetDisplayBounds, !movedWithinDisplay(bounds: bounds, current: currentFrame) {
             return false
         }

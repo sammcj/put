@@ -17,6 +17,9 @@ Changelog; versions use SemVer.
   item. With both off the placement stays saved and only applies when you name
   the window: the active-window hotkey, the per-app menu actions, or a layout
   hotkey.
+- `put://` URL commands for Raycast, Alfred, Shortcuts, Stream Deck and scripts: `save-active`, `save-active-title`, `save-all`, `restore-active`, `restore-all`, `layout?name=…` / `layout?id=…`, `settings?tab=…`. Off by default; enable in Settings → General → Automation.
+- Put learns a minimum window size when an app refuses to shrink to a rule's target, and asks for that size on later restores of that rule instead of drifting and retrying every time. Held in memory only.
+- Automatic restores (display change, wake, app launch, queued rules) wait while Mission Control, App Exposé or Show Desktop is open, then run once it closes. Hotkey and menu restores are unaffected.
 
 ### Changed
 

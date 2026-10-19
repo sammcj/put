@@ -21,11 +21,11 @@ enum PutApp {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowLifecycle {
-    private let log: Logger = PutLog.logger(category: "app")
+    let log: Logger = PutLog.logger(category: "app")
     private let fileLog = FileLog()
     private let store = ConfigStore()
-    private var state: AppState!
-    private var coordinator: ActionCoordinator!
+    var state: AppState!
+    var coordinator: ActionCoordinator!
     private var hotkeyManager: HotkeyManager!
     private var menuBar: MenuBarController!
     private var onboardingWindow: OnboardingWizardController?
@@ -34,7 +34,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowLifecycle {
     private var layoutHotkeys: LayoutHotkeys!
     private var loginItem: LoginItemController!
     private var activationHistory: ActivationHistory!
+    private var missionControl: MissionControlObserver!
     private var layoutObservationTask: Task<Void, Never>?
+    /// `put://` URLs that arrived before bootstrap finished, typically the one
+    /// that launched Put. Replayed once the coordinator exists.
+    var pendingURLs: [URL] = []
+    var isBootstrapped = false
     private var settingsWindow: SettingsWindowController?
     private var aboutWindow: AboutWindow?
     private lazy var relaunchHandler = RelaunchHandler(
@@ -176,13 +181,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowLifecycle {
         // Rules tab "+"/Cmd-N captures that app's window, not Put's Settings.
         activationHistory = ActivationHistory()
         activationHistory.start()
+        missionControl = MissionControlObserver()
+        missionControl.start()
         coordinator = ActionCoordinator(
             state: state,
             store: store,
             fileLog: fileLog,
             activationHistory: activationHistory,
             saveFlash: SaveFlashPresenter(),
-            saveScopeNotice: SaveScopeAlertPresenter())
+            saveScopeNotice: SaveScopeAlertPresenter(),
+            missionControl: missionControl)
         persister = ConfigPersister(state: state, store: store)
         loginItem = LoginItemController()
         autoTriggers = AutoTriggerController(state: state, coordinator: coordinator)
@@ -215,6 +223,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowLifecycle {
             metadata: ["version": Self.versionString()])
 
         await fireLaunchRestore()
+
+        isBootstrapped = true
+        let queued = pendingURLs
+        pendingURLs.removeAll()
+        for url in queued {
+            performURLCommand(url)
+        }
     }
 
     private func wireHotkeys() {
@@ -291,6 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowLifecycle {
         autoTriggers?.stop()
         loginItem?.stop()
         activationHistory?.stop()
+        missionControl?.stop()
         log.info("Put terminating")
     }
 
@@ -326,7 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppWindowLifecycle {
         }
     }
 
-    private func activateLayout(id: UUID) async {
+    func activateLayout(id: UUID) async {
         guard state.config.layouts.contains(where: { $0.id == id }) else { return }
         state.config.activeLayoutID = id
         persister.scheduleWrite()
@@ -374,7 +390,7 @@ extension AppDelegate {
         }
     }
 
-    private func showSettings(tab: SettingsTab? = nil) {
+    func showSettings(tab: SettingsTab? = nil) {
         // A relaunch (Spotlight/`open -a Put`) during a slow `await store.load()`
         // routes here via `applicationShouldHandleReopen` before `bootstrap()`
         // has populated the implicitly-unwrapped dependencies. Bail rather than

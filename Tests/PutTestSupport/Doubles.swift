@@ -87,3 +87,14 @@ public struct StubAccessibilityGate: AccessibilityGateProviding {
         trusted
     }
 }
+
+/// Stub Mission Control state. Mutable so a test can open and close it
+/// mid-scenario.
+@MainActor
+public final class StubMissionControl: MissionControlStateProviding {
+    public var isMissionControlActive: Bool
+
+    public init(active: Bool = false) {
+        isMissionControlActive = active
+    }
+}

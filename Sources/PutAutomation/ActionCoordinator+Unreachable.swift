@@ -58,8 +58,7 @@ public extension ActionCoordinator {
             // The window exists elsewhere (not closed) and isn't reachable here.
             guard offSpaceBundleIDs.contains(bundleID) else { continue }
             let reachable = handles.contains { RuleMatcher.matches(rule, against: $0.descriptor) }
-            guard !reachable else { continue }
-            guard seenBundles.insert(bundleID).inserted else { continue }
+            guard !reachable, seenBundles.insert(bundleID).inserted else { continue }
             result.append(UnreachableWindow(
                 ruleID: rule.id,
                 label: unreachableLabel(for: rule),

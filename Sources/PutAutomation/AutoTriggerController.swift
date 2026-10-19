@@ -242,8 +242,9 @@ public final class AutoTriggerController {
         // much as a wake. A wake with no display events doesn't defer
         // (`lastDisplayEventAt` is nil). Reuse the debouncer as the poll timer
         // rather than a separate loop, so only one restore is ever in flight.
-        // Reasons are kept, not consumed, while we wait.
-        if shouldDeferForDisplaySettle() {
+        // Reasons are kept, not consumed, while we wait. Mission Control holds
+        // the batch the same way; the coordinator would only drop it as busy.
+        if shouldDeferForDisplaySettle() || coordinator.isAutomaticPlacementPaused {
             debouncer.schedule { [weak self] in
                 guard let self else { return }
                 await runSettledRestore()
@@ -296,8 +297,9 @@ public final class AutoTriggerController {
     /// the CGDisplayReconfiguration event that normally reaches it isn't
     /// possible in the xctest host.
     func fulfilQueuedRules() async {
-        guard !state.queuedRuleIDs.isEmpty else { return }
-        guard let activeLayout = state.activeLayout else { return }
+        guard !state.queuedRuleIDs.isEmpty, let activeLayout = state.activeLayout else { return }
+        // Rules stay queued; the next display change tries again.
+        guard !coordinator.isAutomaticPlacementPaused else { return }
         let queuedIDs = state.queuedRuleIDs
 
         guard let (displays, liveWindows) = await probeDisplaysAndWindows() else { return }
@@ -375,8 +377,9 @@ public final class AutoTriggerController {
                 displays: displays,
                 currentFrame: handle.descriptor.frame)
             else { return nil }
+            let sized = coordinator.respectingLearnedMinimum(frame, rule: rule)
             let clamped = ActionCoordinator.clampingIfMoving(
-                frame,
+                sized,
                 from: handle.descriptor.frame,
                 clamp: { resolved in
                     guard let visibleTop = DisplayProbe.visibleTopY(for: display) else { return resolved }
@@ -386,7 +389,7 @@ public final class AutoTriggerController {
         }
         guard !targets.isEmpty else { return false }
 
-        let failures = await Self.write(targets, as: rule.restoreComponents.write, using: mutator)
+        let failures = await writeQueued(targets, for: rule)
         if failures > 0 {
             log.warning(
                 """
@@ -398,40 +401,29 @@ public final class AutoTriggerController {
         return true
     }
 
-    /// Apply each resolved target off the main actor, performing the one write
-    /// the rule's components call for: a rule that only forces a size must not
-    /// have its position rewritten on reconnect, and one that only moves the
-    /// window must not be resized. `RestoreComponents.write` picks that for both
-    /// this path and `ActionCoordinator.executeWrite` so the two can't drift.
-    /// Routes through the injected mutator seam and returns the failure count
-    /// rather than swallowing errors with `try?`.
-    private static func write(
-        _ targets: [(handle: WindowHandle, frame: CGRect)],
-        as kind: RestoreWrite,
-        using mutator: any WindowMutating) async -> Int
-    {
-        await Task.detached(priority: .userInitiated) { () -> Int in
-            var failed = 0
-            for target in targets {
-                do {
-                    switch kind {
-                    case .frame:
-                        try mutator.setFrame(target.handle, to: target.frame)
-                    case .size:
-                        try mutator.setSize(target.handle, to: target.frame.size)
-                    case .position:
-                        try mutator.setPosition(target.handle, to: target.frame.origin)
-                    case .nothing:
-                        // Unreachable: the engine skips a rule with no
-                        // components before it ever resolves a frame.
-                        break
-                    }
-                } catch {
-                    failed += 1
-                }
+    /// Writes each target through the coordinator's write path, so a rule
+    /// that only forces a size isn't repositioned on reconnect (and vice
+    /// versa), and drifts feed the same minimum-size learning. Returns the
+    /// failure count.
+    private func writeQueued(_ targets: [(handle: WindowHandle, frame: CGRect)], for rule: Rule) async -> Int {
+        var failures = 0
+        for target in targets {
+            let outcome = await ActionCoordinator.executeWrite(
+                mutator: mutator,
+                handle: target.handle,
+                frame: target.frame,
+                write: rule.restoreComponents.write)
+            switch outcome {
+            case .applied:
+                break
+            case let .drifted(driftTarget, actual, _):
+                failures += 1
+                await coordinator.learnMinimum(rule: rule, handle: target.handle, target: driftTarget, actual: actual)
+            case .elementGone, .failed:
+                failures += 1
             }
-            return failed
-        }.value
+        }
+        return failures
     }
 }
 
@@ -442,8 +434,7 @@ extension AutoTriggerController {
     /// `NSRunningApplication.current` posted via NotificationCenter has no
     /// settable bundleIdentifier in the xctest host.
     func onAppLaunched(bundleID: String?) {
-        guard state.config.autoTriggers.onAppLaunch else { return }
-        guard let bundleID, !bundleID.isEmpty else { return }
+        guard state.config.autoTriggers.onAppLaunch, let bundleID, !bundleID.isEmpty else { return }
         // Skip the restore pass if no rule would place this app. Previously we
         // fired a restore for every launching app, which filled the log with
         // applied=0 Restore summaries for Finder, Safari, Terminal, etc. and
@@ -549,6 +540,14 @@ extension AutoTriggerController {
                 // handle: `stop()` already niled it, and a stop/start cycle may
                 // have assigned a successor task we must not clobber.
                 guard let self, !Task.isCancelled else { return }
+                // Mission Control would read as a busy drop below, and the drop
+                // cap would abandon the safety net after a few seconds of it.
+                // Wait it out instead; `MissionControlState.staleAfter` bounds
+                // the wait.
+                if coordinator.isAutomaticPlacementPaused {
+                    try? await Task.sleep(for: .seconds(retryDropBackoff))
+                    continue
+                }
                 guard let retry = await coordinator.restoreAllWindows(source: .auto) else {
                     // Dropped by the single-flight guard (a concurrent restore
                     // was in flight). Don't burn this slot: wait a beat and
@@ -679,9 +678,7 @@ extension AutoTriggerController {
         // state (C10). No AX enumeration here, so nothing needs detaching.
         let displays = try? DisplayProbe.snapshot()
 
-        guard let displays, !displays.isEmpty else { return .noAction }
-
-        guard let match = LayoutTriggerEvaluator.evaluate(
+        guard let displays, !displays.isEmpty, let match = LayoutTriggerEvaluator.evaluate(
             layouts: state.config.layouts,
             currentDisplays: displays)
         else {

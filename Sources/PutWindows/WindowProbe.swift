@@ -66,9 +66,8 @@ public enum WindowProbe {
         }
         var pids: Set<pid_t> = []
         for info in infos {
-            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
-            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t else { continue }
-            guard standardSized(info) else { continue }
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t, standardSized(info) else { continue }
             pids.insert(pid)
         }
         guard !pids.isEmpty else { return [] }
@@ -82,8 +81,8 @@ public enum WindowProbe {
     /// Reject trivial helper/utility windows (tooltips, status overlays) so a
     /// stray off-screen helper can't read as a stranded document window.
     private static func standardSized(_ info: [String: Any]) -> Bool {
-        guard let boundsDict = info[kCGWindowBounds as String] else { return true }
-        guard CFGetTypeID(boundsDict as CFTypeRef) == CFDictionaryGetTypeID() else { return true }
+        guard let boundsDict = info[kCGWindowBounds as String],
+              CFGetTypeID(boundsDict as CFTypeRef) == CFDictionaryGetTypeID() else { return true }
         var rect = CGRect.zero
         // swiftlint:disable:next force_cast
         guard CGRectMakeWithDictionaryRepresentation(boundsDict as! CFDictionary, &rect) else { return true }

@@ -51,7 +51,9 @@ Display identity resolves via `DisplayMatcher` chain: UUID → vendor+product+se
 
 `Rule.restoreComponents` is three independent flags - `size`, `position`, `display` - superseding the old three-way `RestoreScope`. `position` implies `display`, because the saved origin is stored relative to a display; `RestoreComponents` holds that invariant in its initialiser and in property observers on both flags, so no caller has to.
 
-`RestoreComponents.write` maps the flags onto the single AX write a restore performs (`.frame` / `.size` / `.position` / `.nothing`). Both write paths - `ActionCoordinator.executeWrite` and `AutoTriggerController.write` - switch on that, so a new combination can't reach one path and miss the other.
+`RestoreComponents.write` maps the flags onto the single AX write a restore performs (`.frame` / `.size` / `.position` / `.nothing`). Both write paths - `ActionCoordinator.applyPlacement` and queued-rule fulfilment in `AutoTriggerController.tryFulfil` - write through `ActionCoordinator.executeWrite`, which switches on that, so a new combination can't reach one path and miss the other.
+
+Both paths also raise a `.frame`/`.size` target to the rule's learned minimum (`ActionCoordinator.respectingLearnedMinimum`) before the menu-bar clamp, and feed drifts back into `LearnedMinimumSizes`. It is keyed per rule, not per app, so a false floor (grid-snapping or aspect-locked apps, or one window type's minimum applied to another) stays with the rule that produced it. An axis only counts as a floor when the window shrank towards the target and stopped short; an unchanged size means the app ignored the write (Firefox after wake), and learning from that would pin the window at its old size. The store is in-memory on purpose: a stale minimum silently enlarges windows, while relearning costs one drift.
 
 `RestoreScope` survives only as the compatibility bridge in `Rule`'s Codable. `RestoreScope.closest(to:)` picks what an older build should see, and never widens: any combination with `position` off maps to something other than `.sizeAndPosition`, so a downgrade can't replay a position the user turned off.
 
@@ -70,6 +72,10 @@ Such a rule has no position of its own, so when there's no usable current frame 
 `RuleSelection.resolve` matches first and gates second. Gating inside the match would let a rule that opted out fall through to a broader rule - typically the bundle-wide one it was written to override - which would then move the window on exactly the trigger the user turned off.
 
 The layout hotkey deliberately applies every rule in the layout (`.explicit`), while screen-config activation is automatic (`.auto`). See issue #8: that split is the one part of this design flagged for revisiting after real use.
+
+`.auto` restores hold off while Mission Control, App Exposé or Show Desktop is open (`MissionControlObserver`, via the Dock's undocumented `AXExpose*` AX notifications). The coordinator's entry points report the pause as a busy drop (`nil` / `.droppedBusy`), which the launch retry absorbs as a normal retry. The settle path and the corrective retry check `isAutomaticPlacementPaused` first and wait without counting drops: their drop caps would otherwise abandon the batch after a few seconds of Mission Control. The observer reconciles against the live Dock pid on each read because macOS posts no workspace launch notifications for `LSUIElement` apps like the Dock. An entry expires after `MissionControlState.staleAfter`, so a missed exit can't pause restores until relaunch. Explicit restores are never paused.
+
+`put://` commands (`URLCommand`, handled in `AppDelegate+URLCommands`) are opt-in through `Config.urlCommandsEnabled`, because macOS delivers them whatever opened the URL, web pages included. Each command reuses its hotkey's code path and `RestoreSource`. `SettingsTab` raw values are the `?tab=` names users put in launcher configs, so renaming a case breaks their links.
 
 ## Rule matching semantics
 

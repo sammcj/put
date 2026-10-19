@@ -43,6 +43,13 @@ public final class ActionCoordinator {
     /// `PlacementHistory` for the decision rule.
     let history = PlacementHistoryStore()
 
+    /// Size floors apps revealed by refusing to shrink. Consulted by both write
+    /// paths; see `ActionCoordinator+MinimumSize`.
+    var learnedMinimums = LearnedMinimumSizes()
+
+    /// Nil in tests that don't wire it, which reads as "never active".
+    let missionControl: (any MissionControlStateProviding)?
+
     public init(
         state: AppState,
         store: ConfigStore,
@@ -52,7 +59,8 @@ public final class ActionCoordinator {
         gate: any AccessibilityGateProviding = DefaultAccessibilityGate(),
         activationHistory: ActivationHistory? = nil,
         saveFlash: any SaveFlashing = NoopSaveFlashing(),
-        saveScopeNotice: any SaveScopeNotifying = NoopSaveScopeNotifying())
+        saveScopeNotice: any SaveScopeNotifying = NoopSaveScopeNotifying(),
+        missionControl: (any MissionControlStateProviding)? = nil)
     {
         self.state = state
         self.store = store
@@ -63,6 +71,7 @@ public final class ActionCoordinator {
         self.activationHistory = activationHistory
         self.saveFlash = saveFlash
         self.saveScopeNotice = saveScopeNotice
+        self.missionControl = missionControl
     }
 
     // MARK: - Public actions
@@ -122,7 +131,9 @@ public final class ActionCoordinator {
             log.warning("Accessibility not granted; restoreAllWindows aborted")
             return nil
         }
-        guard beginRestore(reason: "restoreAllWindows") else { return nil }
+        guard !isPausedForMissionControl(source: source, reason: "restoreAllWindows"),
+              beginRestore(reason: "restoreAllWindows")
+        else { return nil }
         defer { endRestore() }
         let probe = probe
         let handles = await Task.detached(priority: .userInitiated, operation: {
@@ -158,8 +169,8 @@ public final class ActionCoordinator {
     /// Append a copy of an existing rule with a new UUID and a "(copy)"
     /// suffix on the descriptive label.
     public func duplicateRule(id: UUID) async {
-        guard var activeLayout = state.activeLayout else { return }
-        guard let existing = activeLayout.rules.first(where: { $0.id == id }) else { return }
+        guard var activeLayout = state.activeLayout,
+              let existing = activeLayout.rules.first(where: { $0.id == id }) else { return }
         var copy = existing
         copy.id = UUID()
         copy.descriptiveLabel = existing.descriptiveLabel.isEmpty
@@ -437,10 +448,11 @@ extension ActionCoordinator {
             currentFrame: handle.descriptor.frame)
         {
         case let .applyFrame(resolved, display, _, fidelity):
+            let sized = respectingLearnedMinimum(resolved, rule: rule)
             // Keep the target reachable: a frame above the menu bar would be
             // clamped down by macOS and drift forever (see clampToVisibleArea).
             let frame = Self.clampingIfMoving(
-                resolved,
+                sized,
                 from: handle.descriptor.frame,
                 clamp: { clampToVisibleArea($0, on: display) })
             if state.config.autoTriggers.respectManualMoves,
@@ -516,7 +528,10 @@ extension ActionCoordinator {
             // its perpetual re-placement. We record the target we asked for, not
             // the drifted actual, so the suppression target-match still holds on
             // the next pass and only a real user move (> threshold) suppresses.
-            history.record(handle: handle, rule: rule, frame: frame)
+            // Learn first and record the raised target: the next pass asks for
+            // that, and recording the unraised one would miss its target-match.
+            await learnMinimum(rule: rule, handle: handle, target: target, actual: actual)
+            history.record(handle: handle, rule: rule, frame: respectingLearnedMinimum(frame, rule: rule))
             await logDrift(
                 error: .drifted(target: target, actual: actual, attempts: attempts),
                 bundleID: handle.descriptor.bundleID)
@@ -540,8 +555,10 @@ extension ActionCoordinator {
     /// the detached closure captures only Sendable values (never `self`); the
     /// enclosing await hop is trivial while the blocking write and sleeps run in
     /// the detached task. `WindowMutator`'s internal setSize-last ordering is
-    /// unaffected - only the executor moved.
-    private static func executeWrite(
+    /// unaffected - only the executor moved. Queued-rule fulfilment in
+    /// `AutoTriggerController` writes through here too, so both paths perform
+    /// the same write for a given `RestoreWrite`.
+    static func executeWrite(
         mutator: any WindowMutating,
         handle: WindowHandle,
         frame: CGRect,
@@ -672,7 +689,9 @@ public extension ActionCoordinator {
             log.warning("Accessibility not granted; per-app restore aborted")
             return .untrusted
         }
-        guard beginRestore(reason: "restore(windowsForUI:)") else { return .droppedBusy }
+        guard !isPausedForMissionControl(source: source, reason: "restore(windowsForUI:)"),
+              beginRestore(reason: "restore(windowsForUI:)")
+        else { return .droppedBusy }
         defer { endRestore() }
         let tally = await restore(windows: handles, source: source)
         return tally.applied > 0 ? .applied : .noMatch
@@ -685,7 +704,7 @@ public extension ActionCoordinator {
 /// carries the error's description because the concrete error type stays in
 /// the detached task. Implicitly Sendable (all payloads are), so no explicit
 /// conformance.
-private enum WriteOutcome {
+enum WriteOutcome {
     case applied
     case elementGone
     case drifted(target: CGRect, actual: CGRect, attempts: Int)

@@ -50,6 +50,22 @@ Display only is for apps that open on the wrong screen but whose window size you
 
 Saving the focused window stamps a rule that applies to every window of the frontmost app. A separate "save focused window (this title only)" action is available with no default binding. All hotkeys, plus per-layout activation shortcuts, are editable from Settings → Hotkeys.
 
+## URL commands
+
+Launchers and scripts (Raycast, Alfred, Shortcuts, Stream Deck, `open`) can drive Put through `put://` URLs. They're off by default because macOS hands Put any such URL whatever opened it, including web pages; turn them on in Settings → General → Automation.
+
+```sh
+open "put://save-active"          # save focused window (all app windows)
+open "put://save-active-title"    # save focused window (this title only)
+open "put://save-all"             # save all windows
+open "put://restore-active"       # restore active window
+open "put://restore-all"          # restore all windows
+open "put://layout?name=Docked"   # activate a layout and apply it (or ?id=<uuid>)
+open "put://settings?tab=rules"   # general, hotkeys, rules, layouts, displays, about
+```
+
+Each command behaves exactly like its hotkey, including which per-rule trigger settings it honours. Layout names match case-insensitively.
+
 ## Permissions
 
 Put needs the Accessibility permission to query and move windows in other applications. On first launch a multi-step welcome wizard introduces the core concepts, drives the Accessibility grant, and surfaces the launch-at-login and restore-on-launch defaults.

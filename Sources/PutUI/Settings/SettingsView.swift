@@ -1,7 +1,9 @@
 import PutAutomation
 import SwiftUI
 
-public enum SettingsTab: Hashable {
+/// Raw values are the `put://settings?tab=` names, so renaming a case breaks
+/// users' launcher links.
+public enum SettingsTab: String, Hashable {
     case general
     case hotkeys
     case rules

@@ -14,6 +14,10 @@ public struct Config: Codable, Hashable, Sendable {
     /// this to decide whether to show the multi-step welcome flow on launch.
     /// Re-running the wizard from Settings does not modify this value.
     public var firstRunCompletedAt: Date?
+    /// Whether `put://` URLs run commands. Off by default: macOS hands Put any
+    /// such URL whatever opened it, including a web page the browser has been
+    /// told to always allow.
+    public var urlCommandsEnabled: Bool
 
     public init(
         schemaVersion: Int = putSchemaVersion,
@@ -23,7 +27,8 @@ public struct Config: Codable, Hashable, Sendable {
         autoTriggers: AutoTriggerSettings = AutoTriggerSettings(),
         launchAtLogin: Bool = false,
         defaultMissingDisplayPolicy: MissingDisplayPolicy = .primaryProportional,
-        firstRunCompletedAt: Date? = nil)
+        firstRunCompletedAt: Date? = nil,
+        urlCommandsEnabled: Bool = false)
     {
         self.schemaVersion = schemaVersion
         self.layouts = layouts
@@ -33,6 +38,7 @@ public struct Config: Codable, Hashable, Sendable {
         self.launchAtLogin = launchAtLogin
         self.defaultMissingDisplayPolicy = defaultMissingDisplayPolicy
         self.firstRunCompletedAt = firstRunCompletedAt
+        self.urlCommandsEnabled = urlCommandsEnabled
     }
 
     /// Backwards-compatible decoder: older keys that have since been removed
@@ -50,6 +56,7 @@ public struct Config: Codable, Hashable, Sendable {
             MissingDisplayPolicy.self,
             forKey: .defaultMissingDisplayPolicy) ?? .primaryProportional
         firstRunCompletedAt = try container.decodeIfPresent(Date.self, forKey: .firstRunCompletedAt)
+        urlCommandsEnabled = try container.decodeIfPresent(Bool.self, forKey: .urlCommandsEnabled) ?? false
     }
 
     /// Empty config with a single Default layout.

@@ -25,8 +25,7 @@ public enum ScreenConfigMatcher {
         trigger: ScreenConfigTrigger,
         against current: [DisplayFingerprint]) -> ScreenConfigMatchOutcome
     {
-        guard trigger.displays.count == current.count else { return .noMatch }
-        guard !trigger.displays.isEmpty else { return .noMatch }
+        guard trigger.displays.count == current.count, !trigger.displays.isEmpty else { return .noMatch }
 
         // Pair each captured display with a current display by identity.
         // Reuse `DisplayMatcher` so the identity rules (UUID > vendor+product+serial

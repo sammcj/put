@@ -56,8 +56,7 @@ extension ActionCoordinator {
         var outcome = SaveOutcome()
         for handle in windows {
             let descriptor = handle.descriptor
-            guard !descriptor.isMinimised else { continue }
-            guard descriptor.frame.width > 0, descriptor.frame.height > 0 else { continue }
+            guard !descriptor.isMinimised, descriptor.frame.width > 0, descriptor.frame.height > 0 else { continue }
 
             let criteria = RuleFactory.criteria(for: descriptor, applyToAll: applyToAll)
             guard let newRule = PlacementEngine.buildRule(

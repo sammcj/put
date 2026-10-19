@@ -96,6 +96,23 @@ struct GeneralTab: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section("Automation") {
+                Toggle("Allow put:// links to run commands", isOn: Binding(
+                    get: { state.config.urlCommandsEnabled },
+                    set: { state.config.urlCommandsEnabled = $0
+                        persister.scheduleWrite()
+                    }))
+                Text(
+                    """
+                    Lets launchers and scripts (Raycast, Alfred, Shortcuts, Stream Deck) save and restore \
+                    windows, for example put://restore-all. Any app or web page you've allowed to open \
+                    links can use them too.
+                    """)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("Help") {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
