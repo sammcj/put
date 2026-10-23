@@ -10,7 +10,7 @@ let package = Package(
         .executable(name: "Put", targets: ["Put"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.3.0")
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "3.1.0")
     ],
     targets: [
         .target(
