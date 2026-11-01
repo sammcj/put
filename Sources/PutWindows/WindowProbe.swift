@@ -20,13 +20,31 @@ public enum WindowProbe {
     /// granted.
     public static func snapshot() -> [WindowHandle] {
         NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil }
+            .filter(isTargetable)
             .flatMap { windows(in: $0) }
+    }
+
+    /// Whether Put may enumerate and move an app's windows. Put itself is
+    /// `.regular` while Settings is open, but AX calls into the calling process
+    /// run in-process on the caller's thread: a restore from a detached task
+    /// would set an `NSWindow` frame off the main thread and trap.
+    static func isTargetable(
+        pid: pid_t,
+        policy: NSApplication.ActivationPolicy,
+        bundleID: String?,
+        ownPID: pid_t = ProcessInfo.processInfo.processIdentifier) -> Bool
+    {
+        policy == .regular && bundleID != nil && pid != ownPID
+    }
+
+    private static func isTargetable(_ app: NSRunningApplication) -> Bool {
+        isTargetable(pid: app.processIdentifier, policy: app.activationPolicy, bundleID: app.bundleIdentifier)
     }
 
     /// The single focused window of the frontmost application, if any.
     public static func focusedWindow() -> WindowHandle? {
         guard let app = NSWorkspace.shared.frontmostApplication,
+              isTargetable(app),
               let bundleID = app.bundleIdentifier
         else { return nil }
         return focusedWindow(pid: app.processIdentifier, bundleID: bundleID)
@@ -37,6 +55,7 @@ public enum WindowProbe {
     /// user was in before Put's Settings window took focus. Same XPC-blocking
     /// caveat as `focusedWindow()`; callers dispatch it off the main actor.
     public static func focusedWindow(pid: pid_t, bundleID: String) -> WindowHandle? {
+        guard pid != ProcessInfo.processInfo.processIdentifier else { return nil }
         let appElement = AXUIElementCreateApplication(pid)
         // Accessibility returns an AXUIElement bridged as CFTypeRef.
         guard let focused = copyAttribute(appElement, kAXFocusedWindowAttribute),
@@ -49,7 +68,7 @@ public enum WindowProbe {
     /// Every window of every regular app whose bundle ID matches.
     public static func windows(forBundleID bundleID: String) -> [WindowHandle] {
         NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier == bundleID }
+            .filter { isTargetable($0) && $0.bundleIdentifier == bundleID }
             .flatMap { windows(in: $0) }
     }
 

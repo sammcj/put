@@ -48,6 +48,7 @@ Changelog; versions use SemVer.
 
 ### Fixed
 
+- Put crashed when a restore ran while its Settings window was open. Settings makes Put a regular app, so its own windows were enumerated, saved into rules, and moved via AX from a background thread, which AppKit traps on. Put now never enumerates or moves its own windows; existing rules for `net.smcleod.put` simply no longer match.
 - Opening the Hotkeys or Layouts settings tab crashed a DMG install with `unable to find bundle named KeyboardShortcuts_KeyboardShortcuts`. The Makefile never copied the package's localisation bundle into `Contents/Resources`; it now ships and signs it alongside the binary.
 - `screensDidWakeTriggersRestore` asserted exactly one restore after posting to
   `NSWorkspace.shared.notificationCenter`. That bus is shared with the OS, so a
