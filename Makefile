@@ -497,11 +497,13 @@ _release-build: notarise
 # awkward to retract once it is on the remote.
 .PHONY: _release-tag
 _release-tag:
-	@if [ -n "$(NO_TAG)" ]; then echo "NO_TAG=1: skipping commit and tag."; exit 0; fi
-	@if ! git rev-parse --git-dir >/dev/null 2>&1; then \
+	@# One shell for the whole recipe: `exit 0` only ends its own recipe line, so
+	@# separate lines would carry on and tag anyway.
+	@if [ -n "$(NO_TAG)" ]; then echo "NO_TAG=1: skipping commit and tag."; exit 0; fi; \
+	if ! git rev-parse --git-dir >/dev/null 2>&1; then \
 		echo "Not a git repository; skipping commit and tag."; exit 0; \
-	fi
-	@V=$$(tr -d '[:space:]' < VERSION); TAG="v$$V"; \
+	fi; \
+	V=$$(tr -d '[:space:]' < VERSION); TAG="v$$V"; \
 	if git rev-parse -q --verify "refs/tags/$$TAG" >/dev/null; then \
 		echo "WARNING: tag $$TAG already exists, leaving it untouched."; \
 		echo "         The artefacts in dist/ are built for $$V. Either delete the"; \
