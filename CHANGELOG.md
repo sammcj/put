@@ -9,6 +9,8 @@ Changelog; versions use SemVer.
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-04
+
 ### Fixed
 
 - Release builds failed on the GitHub runner's Swift toolchain because the onboarding hotkey row used KeyboardShortcuts' main-actor `description` from a nonisolated context.

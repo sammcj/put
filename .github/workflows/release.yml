@@ -196,7 +196,9 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
-        run: make release
+        # "Stamp version" has already set the version the later steps use, and
+        # a commit or tag made here would be lost with the runner.
+        run: make release NO_BUMP=1 NO_TAG=1
 
       - name: Collect artefacts
         id: artefacts
