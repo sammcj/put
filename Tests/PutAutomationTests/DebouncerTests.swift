@@ -38,10 +38,19 @@ struct DebouncerTests {
         let debouncer = Debouncer(interval: 0.02)
         let counter = Counter()
         debouncer.schedule { await counter.increment() }
-        try await Task.sleep(for: .milliseconds(60))
+        try await waitForCount(1, on: counter)
         debouncer.schedule { await counter.increment() }
-        try await Task.sleep(for: .milliseconds(60))
+        try await waitForCount(2, on: counter)
         #expect(await counter.value == 2)
+    }
+
+    /// A fixed sleep fails on a loaded machine: a late first fire coalesces with
+    /// the second schedule, or the second fire lands after the assertion.
+    private func waitForCount(_ expected: Int, on counter: Counter) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await counter.value < expected, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
     }
 }
 

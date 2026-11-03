@@ -96,6 +96,17 @@ Invalid regex patterns fail closed (no match). Keep it that way - fail-open woul
 
 `KeyboardShortcuts` stores chosen bindings in `UserDefaults` keyed by `Name.rawValue`. Per-layout activation shortcuts use `KeyboardShortcuts.Name("layout.<uuid>")` so they survive restarts as long as the `Layout.id` does. `LayoutHotkeys.syncRegistrations` is called on launch and polled every 2 seconds from `AppDelegate.observeLayoutChanges` to catch layout add/remove.
 
+## Display defaults
+
+Settings → Displays writes the current resolution into WindowServer's stored layouts, which macOS keeps per set of connected displays. A monitor waking before its neighbours uses the layout for that smaller set, so a stale entry changes the resolution mid-wake. `StoredDisplayLayouts` holds the pure edits and `DisplayDefaultsWriter` the I/O.
+
+- The format is undocumented, so edits stay on raw plist dictionaries and fail closed on anything unrecognised. Mirrored sets are skipped, and only `MasterUUID` identifies them: a 1x1 `UnmirrorInfo` also appears on ordinary extended sets.
+- No restart is requested. In practice these edits have taken effect without one, and Put's re-read after writing only proves cfprefsd holds the new values.
+- Only combinations of the connected displays are touched. Sets containing any other display stay as they are.
+- Modes are copied from the store's entry for the current set, because `IsVRR` and friends have no `CGDisplayMode` mapping.
+- Only the user store (`DisplaySets`, ByHost) is written, through `defaults`, because editing the plist file bypasses cfprefsd. The system store (`DisplayAnyUserSets`) needs root, and on macOS 27 `do shell script ... with administrator privileges` shows a malware warning that ignores `with prompt`. A privileged helper would avoid that, but it's too heavy for a tool that rarely runs.
+- There is no "clean up stale layouts" action on purpose. The stores hold no timestamps, so a set for a retired monitor looks the same as one for a monitor that's just unplugged.
+
 ## Settings backup
 
 `SettingsBackup` (PutAutomation) is a single-JSON export/import of all settings, wired through `AppDelegate.exportSettings`/`importSettings` and surfaced in Settings → General → Backup. For a new setting to be captured automatically, store it in one of the two recognised homes: a field on `Config` (the whole struct is embedded verbatim, so any new field flows through), or a `GlobalHotkeyName` case (`ShortcutsBackup.globalNames` derives the backed-up hotkeys from `GlobalHotkeyName.allCases`). A setting written to any third location (a bespoke `UserDefaults` key, say) is silently dropped from backups. `ShortcutsBackupTests.globalNamesCoverEveryGlobalHotkey` guards the hotkey derivation.

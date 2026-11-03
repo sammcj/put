@@ -9,6 +9,8 @@ Changelog; versions use SemVer.
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-04
+
 ### Added
 
 - Per-rule control over which triggers place a window. `Automatic placement`
@@ -20,6 +22,7 @@ Changelog; versions use SemVer.
 - `put://` URL commands for Raycast, Alfred, Shortcuts, Stream Deck and scripts: `save-active`, `save-active-title`, `save-all`, `restore-active`, `restore-all`, `layout?name=…` / `layout?id=…`, `settings?tab=…`. Off by default; enable in Settings → General → Automation.
 - Put learns a minimum window size when an app refuses to shrink to a rule's target, and asks for that size on later restores of that rule instead of drifting and retrying every time. Held in memory only.
 - Automatic restores (display change, wake, app launch, queued rules) wait while Mission Control, App Exposé or Show Desktop is open, then run once it closes. Hotkey and menu restores are unaffected.
+- Settings → Displays can save a display's current resolution and scaling, or every display's, into all combinations of the connected displays. This stops macOS switching resolution mid-wake when monitors come online at different times. Setups involving other displays are untouched, and backups go to `~/Library/Application Support/Put/display-backups`.
 
 ### Changed
 

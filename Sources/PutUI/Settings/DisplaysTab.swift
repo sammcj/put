@@ -4,7 +4,16 @@ import PutDisplay
 import SwiftUI
 
 struct DisplaysTab: View {
+    /// A preview awaiting the user's confirmation.
+    private struct PendingDefaults {
+        let pinning: Set<UUID>
+        let combinationCount: Int
+    }
+
     @State private var displays: [DisplayFingerprint] = []
+    @State private var pending: PendingDefaults?
+    @State private var notice: String?
+    @State private var isUpdatingDefaults = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -12,6 +21,11 @@ struct DisplaysTab: View {
                 Text("Current arrangement")
                     .font(.headline)
                 Spacer()
+                Button("Set All as Default") {
+                    prepareDefaults(for: displays)
+                }
+                .disabled(isUpdatingDefaults || displays.isEmpty)
+                .help("Use every display's current resolution in all combinations of these displays")
                 Button("Refresh") {
                     refresh()
                 }
@@ -35,6 +49,22 @@ struct DisplaysTab: View {
         // on the observer's private queue; refresh() runs on the main actor
         // when one arrives.
         .onDisplayConfigurationChange { refresh() }
+        .alert(
+            "Set as Default?",
+            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+            presenting: pending)
+        { defaults in
+            Button("Set as Default") { applyDefaults(defaults.pinning) }
+            Button("Cancel", role: .cancel) {}
+        } message: { defaults in
+            Text("Sets the default resolution and scaling for \(combinationCount(defaults.combinationCount)).")
+        }
+        .alert(
+            notice ?? "",
+            isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } }))
+        {
+            Button("OK", role: .cancel) {}
+        }
     }
 
     private var displayList: some View {
@@ -53,6 +83,13 @@ struct DisplaysTab: View {
                                     .background(Color.accentColor.opacity(0.2))
                                     .clipShape(Capsule())
                             }
+                            Spacer()
+                            Button("Set as Default") {
+                                prepareDefaults(for: [display])
+                            }
+                            .controlSize(.small)
+                            .disabled(isUpdatingDefaults || display.uuid == nil)
+                            .help("Use this display's current resolution in all combinations of the connected displays")
                         }
                         Text(summary(for: display))
                             .font(.caption)
@@ -78,6 +115,52 @@ struct DisplaysTab: View {
 
     private func refresh() {
         displays = (try? DisplayProbe.snapshot()) ?? []
+    }
+
+    private func combinationCount(_ count: Int) -> String {
+        count == 1 ? "1 display combination" : "\(count) display combinations"
+    }
+
+    private func prepareDefaults(for targets: [DisplayFingerprint]) {
+        let pinning = Set(targets.compactMap(\.uuid))
+        let connected = displays
+        runDefaultsTask {
+            try DisplayDefaultsWriter.preview(displays: connected, pinning: pinning)
+        } onSuccess: { count in
+            if count == 0 {
+                notice = "Already the default resolution and scaling."
+            } else {
+                pending = PendingDefaults(pinning: pinning, combinationCount: count)
+            }
+        }
+    }
+
+    private func applyDefaults(_ pinning: Set<UUID>) {
+        refresh()
+        let connected = displays
+        runDefaultsTask {
+            try DisplayDefaultsWriter.apply(displays: connected, pinning: pinning)
+        } onSuccess: { count in
+            notice = count == 0
+                ? "Already the default resolution and scaling."
+                : "Default resolution and scaling set for \(combinationCount(count))."
+        }
+    }
+
+    /// The writer blocks on subprocesses, so it stays off the main actor.
+    private func runDefaultsTask(
+        _ work: @escaping @Sendable () throws -> Int,
+        onSuccess: @escaping (Int) -> Void)
+    {
+        isUpdatingDefaults = true
+        Task {
+            defer { isUpdatingDefaults = false }
+            do {
+                try await onSuccess(Task.detached(priority: .userInitiated, operation: work).value)
+            } catch {
+                notice = error.localizedDescription
+            }
+        }
     }
 }
 
