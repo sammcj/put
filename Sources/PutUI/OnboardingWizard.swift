@@ -456,7 +456,7 @@ private struct OnboardingDefaultsView: View {
         HStack(alignment: .firstTextBaseline) {
             Text(label).font(.subheadline)
             Spacer()
-            Text(KeyboardShortcuts.getShortcut(for: name).map(String.init(describing:)) ?? "—")
+            Text(KeyboardShortcuts.getShortcut(for: name)?.description ?? "—")
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
